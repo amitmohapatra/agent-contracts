@@ -72,11 +72,67 @@ class AgentError(BaseModel):
         )
 
 
+class AgentPaused(Exception):
+    """Raised by an agent to suspend the run and ask a person something.
+
+    The framework-agnostic way to pause. LangGraph agents already have one — ``interrupt()``
+    raises ``GraphInterrupt`` and the graph runtime persists a checkpoint — but an ordinary
+    async function had no way to say "a human has to answer this before I continue". Without
+    it, the only options were to fail the run or to name your own exception ``GraphInterrupt``
+    and hope, and agents built on this platform rather than on LangGraph could not do
+    human-in-the-loop at all.
+
+    Deliberately not a :class:`HarnessError`: a pause is not a failure, and inheriting from
+    the error base would classify it, count it in the error rate, and hand it to
+    ``on_agent_error``.
+
+    ``question`` is what the person is being asked, and it is required — a pause with no
+    question is a run that stops with nothing to show anyone. ``expects`` describes the shape
+    of an acceptable answer so a UI can render a control rather than a free-text box;
+    ``payload`` carries whatever else that UI needs.
+
+        raise AgentPaused(
+            "Approve a EUR 240 refund for order 91?",
+            expects={"type": "boolean"},
+            payload={"order_id": 91, "amount_eur": 240},
+        )
+
+    :meth:`awaiting` is the dict the run store keeps and the webhook delivers, so the
+    question reaches a person without the harness knowing anything about the UI.
+    """
+
+    def __init__(
+        self,
+        question: str,
+        *,
+        expects: dict[str, Any] | None = None,
+        payload: dict[str, Any] | None = None,
+    ) -> None:
+        if not question or not question.strip():
+            raise ValueError("AgentPaused needs a question: a pause nobody can answer is a hang")
+        super().__init__(question)
+        self.question = question
+        self.expects = expects
+        self.payload = payload
+
+    def awaiting(self) -> dict[str, Any]:
+        """What the run is waiting for, as the run store and the UI see it."""
+        out: dict[str, Any] = {"question": self.question}
+        if self.expects is not None:
+            out["expects"] = self.expects
+        if self.payload is not None:
+            out["payload"] = self.payload
+        return out
+
+
 #: Exceptions a framework raises to *suspend* a run rather than to report a failure.
 #: LangGraph's ``interrupt()`` raises ``GraphInterrupt``; ``Command(goto=...)`` from a
 #: subgraph raises ``ParentCommand``. Both derive from ``GraphBubbleUp``, and both are
-#: control flow the graph runtime catches and acts on — not errors.
-_PAUSE_SIGNALS = frozenset({"GraphBubbleUp", "GraphInterrupt", "NodeInterrupt", "ParentCommand"})
+#: control flow the graph runtime catches and acts on — not errors. :class:`AgentPaused` is
+#: this platform's own, for agents that are not graphs.
+_PAUSE_SIGNALS = frozenset(
+    {"AgentPaused", "GraphBubbleUp", "GraphInterrupt", "NodeInterrupt", "ParentCommand"}
+)
 
 
 def is_pause_signal(exc: BaseException) -> bool:

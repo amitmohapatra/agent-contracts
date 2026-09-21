@@ -14,6 +14,7 @@ from universal_agent_contracts.descriptors import AgentDescriptor, SkillDescript
 from universal_agent_contracts.errors import (
     AgentCancelledError,
     AgentError,
+    AgentPaused,
     AgentTimeoutError,
     ConfigurationError,
     ErrorCategory,
@@ -56,6 +57,7 @@ __all__ = [
     "AgentEvalEvent",
     "AgentExecutionContext",
     "AgentInterceptor",
+    "AgentPaused",
     "AgentPolicyProvider",
     "AgentRegistryClient",
     "AgentRequest",
