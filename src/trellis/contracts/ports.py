@@ -11,14 +11,14 @@ from collections.abc import AsyncIterator, Awaitable, Mapping, Sequence
 from contextlib import AbstractContextManager
 from typing import Any, Protocol, runtime_checkable
 
-from universal_agent_contracts.artifacts import ArtifactRef, MemoryObservation
-from universal_agent_contracts.context import AgentExecutionContext
-from universal_agent_contracts.descriptors import AgentDescriptor
-from universal_agent_contracts.errors import AgentError
-from universal_agent_contracts.events import AgentEvalEvent
-from universal_agent_contracts.messages import AgentRequest, AgentResponse
-from universal_agent_contracts.model import ModelRequest, ModelResponse
-from universal_agent_contracts.tool import ToolCall, ToolOutcome, ToolSpec
+from trellis.contracts.artifacts import ArtifactRef, MemoryObservation
+from trellis.contracts.context import AgentExecutionContext
+from trellis.contracts.descriptors import AgentDescriptor
+from trellis.contracts.errors import AgentError
+from trellis.contracts.events import AgentEvalEvent
+from trellis.contracts.messages import AgentRequest, AgentResponse
+from trellis.contracts.model import ModelRequest, ModelResponse
+from trellis.contracts.tool import ToolCall, ToolOutcome, ToolSpec
 
 # --------------------------------------------------------------------------- model / tool
 

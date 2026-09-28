@@ -11,7 +11,7 @@ from typing import Any, Self
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from universal_agent_contracts.artifacts import (
+from trellis.contracts.artifacts import (
     AgentWarning,
     ArtifactRef,
     Claim,
@@ -19,8 +19,8 @@ from universal_agent_contracts.artifacts import (
     MemoryObservation,
     RecommendedAction,
 )
-from universal_agent_contracts.context import AgentExecutionContext
-from universal_agent_contracts.errors import AgentError
+from trellis.contracts.context import AgentExecutionContext
+from trellis.contracts.errors import AgentError
 
 
 class AgentStatus(StrEnum):

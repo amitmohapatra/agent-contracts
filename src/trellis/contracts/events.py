@@ -11,7 +11,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from universal_agent_contracts.artifacts import EvidenceRef
+from trellis.contracts.artifacts import EvidenceRef
 
 
 class LifecycleEvent(StrEnum):

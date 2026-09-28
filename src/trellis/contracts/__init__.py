@@ -1,6 +1,6 @@
 """Framework-neutral contracts. Everything the harness exchanges with an application."""
 
-from universal_agent_contracts.artifacts import (
+from trellis.contracts.artifacts import (
     OBSERVATION_KINDS,
     AgentWarning,
     ArtifactRef,
@@ -9,9 +9,9 @@ from universal_agent_contracts.artifacts import (
     MemoryObservation,
     RecommendedAction,
 )
-from universal_agent_contracts.context import AgentExecutionContext
-from universal_agent_contracts.descriptors import AgentDescriptor, SkillDescriptor
-from universal_agent_contracts.errors import (
+from trellis.contracts.context import AgentExecutionContext
+from trellis.contracts.descriptors import AgentDescriptor, SkillDescriptor
+from trellis.contracts.errors import (
     AgentCancelledError,
     AgentError,
     AgentPaused,
@@ -27,11 +27,11 @@ from universal_agent_contracts.errors import (
     ToolNotFoundError,
     classify,
 )
-from universal_agent_contracts.events import AgentEvalEvent, LifecycleEvent
-from universal_agent_contracts.ids import new_id, safe_id, stable_id
-from universal_agent_contracts.messages import AgentRequest, AgentResponse, AgentStatus
-from universal_agent_contracts.model import ModelRequest, ModelResponse, ModelUsage
-from universal_agent_contracts.ports import (
+from trellis.contracts.events import AgentEvalEvent, LifecycleEvent
+from trellis.contracts.ids import new_id, safe_id, stable_id
+from trellis.contracts.messages import AgentRequest, AgentResponse, AgentStatus
+from trellis.contracts.model import ModelRequest, ModelResponse, ModelUsage
+from trellis.contracts.ports import (
     AgentInterceptor,
     AgentPolicyProvider,
     AgentRegistryClient,
@@ -47,7 +47,7 @@ from universal_agent_contracts.ports import (
     TelemetryRedactor,
     ToolClient,
 )
-from universal_agent_contracts.tool import ToolCall, ToolOutcome, ToolSpec
+from trellis.contracts.tool import ToolCall, ToolOutcome, ToolSpec
 
 __all__ = [
     "OBSERVATION_KINDS",

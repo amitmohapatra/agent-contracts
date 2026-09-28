@@ -7,7 +7,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from universal_agent_contracts.artifacts import ArtifactRef
+from trellis.contracts.artifacts import ArtifactRef
 
 
 class ToolSpec(BaseModel):

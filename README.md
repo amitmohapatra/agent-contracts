@@ -1,4 +1,4 @@
-# universal-agent-contracts
+# trellis-contracts
 
 The types an agent must accept and return. No runtime, no transport, no I/O.
 
@@ -18,7 +18,7 @@ without pulling in a gateway, a database or an agent framework.
 ## Install
 
 ```bash
-uv add universal-agent-contracts
+uv add trellis-contracts
 ```
 
 ## The one rule

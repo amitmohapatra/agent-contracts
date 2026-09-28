@@ -15,7 +15,7 @@ from typing import Any, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from universal_agent_contracts.ids import new_id, safe_id, stable_id
+from trellis.contracts.ids import new_id, safe_id, stable_id
 
 #: Fields a child execution inherits verbatim from its parent. Anything outside this set is
 #: either re-derived (agent run lineage) or explicitly passed.

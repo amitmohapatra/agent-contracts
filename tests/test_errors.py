@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import pytest
 
-from universal_agent_contracts import AgentPaused
-from universal_agent_contracts.errors import HarnessError, is_pause_signal
+from trellis.contracts import AgentPaused
+from trellis.contracts.errors import ErrorCategory, HarnessError, classify, is_pause_signal
 
 # --------------------------------------------------------------- pausing for a human
 
@@ -72,3 +72,12 @@ def test_the_langgraph_signals_are_still_recognised() -> None:
     for cls in (GraphBubbleUp, GraphInterrupt, ParentCommand):
         assert is_pause_signal(cls("suspended")), cls.__name__
     assert not is_pause_signal(RuntimeError("a real failure"))
+
+
+def test_memory_sdk_errors_are_classified_by_module_and_name():
+    """``trellis.memory`` exceptions are recognised without importing the SDK: a class of
+    the right name from the ``trellis`` namespace maps, the same name elsewhere does not."""
+    sdk_error = type("RateLimitedError", (Exception,), {"__module__": "trellis.memory.errors"})
+    assert classify(sdk_error("slow down")) is ErrorCategory.RATE_LIMIT
+    elsewhere = type("RateLimitedError", (Exception,), {"__module__": "somewhere.else"})
+    assert classify(elsewhere("slow down")) is ErrorCategory.UNKNOWN

@@ -163,7 +163,8 @@ def classify(exc: BaseException) -> ErrorCategory:
 
 
 def _sdk_category(exc: BaseException) -> ErrorCategory:
-    """Map ``universal_memory`` SDK errors without importing the SDK eagerly."""
+    """Map ``trellis.memory`` SDK errors (and httpx transport errors) by module and class
+    name, so the contract never imports the SDK."""
     name = type(exc).__name__
     mapping = {
         "AuthenticationError": ErrorCategory.AUTHORIZATION,
@@ -181,7 +182,7 @@ def _sdk_category(exc: BaseException) -> ErrorCategory:
         "PoolTimeout": ErrorCategory.TIMEOUT,
     }
     module = type(exc).__module__.split(".")[0]
-    if module in ("universal_memory", "httpx") and name in mapping:
+    if module in ("trellis", "httpx") and name in mapping:
         return mapping[name]
     return ErrorCategory.UNKNOWN
 

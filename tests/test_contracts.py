@@ -14,7 +14,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from universal_agent_contracts import (
+from trellis.contracts import (
     AgentDescriptor,
     AgentExecutionContext,
     AgentRequest,
@@ -27,11 +27,11 @@ from universal_agent_contracts import (
     SkillDescriptor,
 )
 
-SRC = pathlib.Path(__file__).resolve().parents[1] / "src" / "universal_agent_contracts"
+SRC = pathlib.Path(__file__).resolve().parents[1] / "src" / "trellis.contracts"
 
 #: Everything this package may import. Deliberately tiny.
 ALLOWED = {
-    "universal_agent_contracts",
+    "trellis.contracts",
     "pydantic",
     "typing",
     "collections",
