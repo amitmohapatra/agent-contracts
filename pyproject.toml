@@ -1,6 +1,6 @@
 [project]
 name = "trellis-contracts"
-version = "0.2.0"
+version = "0.3.0"
 description = "The types an agent must accept and return. No runtime, no transport, no I/O."
 requires-python = ">=3.12"
 dependencies = ["pydantic>=2.13,<3"]

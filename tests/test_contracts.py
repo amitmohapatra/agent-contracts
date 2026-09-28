@@ -27,12 +27,15 @@ from trellis.contracts import (
     SkillDescriptor,
 )
 
-SRC = pathlib.Path(__file__).resolve().parents[1] / "src" / "trellis.contracts"
+SRC = pathlib.Path(__file__).resolve().parents[1] / "src" / "trellis" / "contracts"
 
 #: Everything this package may import. Deliberately tiny.
 ALLOWED = {
-    "trellis.contracts",
+    "trellis",
     "pydantic",
+    "importlib",
+    "urllib",
+    "zoneinfo",
     "typing",
     "collections",
     "datetime",

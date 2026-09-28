@@ -5,8 +5,14 @@ from __future__ import annotations
 import hashlib
 import re
 import uuid
+from datetime import UTC, datetime
 
 _SAFE = re.compile(r"[^A-Za-z0-9._:\-]")
+
+
+def now() -> datetime:
+    """The platform's clock: timezone-aware UTC, so every timestamp in a record compares."""
+    return datetime.now(UTC)
 
 
 def new_id(prefix: str = "") -> str:

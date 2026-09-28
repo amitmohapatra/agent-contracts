@@ -11,13 +11,26 @@ from collections.abc import AsyncIterator, Awaitable, Mapping, Sequence
 from contextlib import AbstractContextManager
 from typing import Any, Protocol, runtime_checkable
 
+from trellis.contracts.a2a import AgentCard
 from trellis.contracts.artifacts import ArtifactRef, MemoryObservation
 from trellis.contracts.context import AgentExecutionContext
 from trellis.contracts.descriptors import AgentDescriptor
 from trellis.contracts.errors import AgentError
+from trellis.contracts.evaluation import JudgeVerdict
 from trellis.contracts.events import AgentEvalEvent
+from trellis.contracts.feedback import Feedback, FeedbackTargetKind
 from trellis.contracts.messages import AgentRequest, AgentResponse
 from trellis.contracts.model import ModelRequest, ModelResponse
+from trellis.contracts.runs import (
+    Interrupt,
+    InterruptResolution,
+    RunEvent,
+    RunRecord,
+    RunStart,
+    RunStatus,
+    Schedule,
+    ScheduleSpec,
+)
 from trellis.contracts.tool import ToolCall, ToolOutcome, ToolSpec
 
 # --------------------------------------------------------------------------- model / tool
@@ -180,6 +193,98 @@ class AgentRegistryClient(Protocol):
     async def register(self, descriptor: AgentDescriptor) -> None: ...
 
     async def heartbeat(self, descriptor: AgentDescriptor, *, status: str = "healthy") -> None: ...
+
+
+# --------------------------------------------------------------------------- runs / surfaces
+
+
+@runtime_checkable
+class EventSink(Protocol):
+    """Where a run's :class:`RunEvent` stream goes: an SSE response, a webhook outbox, a
+    trace exporter, a test collector. Must not raise into the run; a sink that fails is
+    degraded, never the run. Events are unredacted: a sink that leaves the process passes
+    them through a :class:`TelemetryRedactor` first."""
+
+    async def publish(self, event: RunEvent) -> None: ...
+
+
+@runtime_checkable
+class RunStore(Protocol):
+    """Where a run outlives the process: agent-runs, Temporal, or an in-memory store in
+    tests. A run is started idempotently by its id, paused with the interrupt it waits on,
+    resumed with the resolution it got, and finished once."""
+
+    async def started(self, start: RunStart) -> RunRecord: ...
+
+    async def paused(self, interrupt: Interrupt) -> RunRecord: ...
+
+    async def resumed(self, resolution: InterruptResolution) -> RunRecord: ...
+
+    async def finished(
+        self,
+        run_id: str,
+        status: RunStatus,
+        *,
+        output: Any = None,
+        error: AgentError | None = None,
+    ) -> RunRecord: ...
+
+    async def get(self, run_id: str) -> RunRecord | None: ...
+
+    async def list_paused(self, tenant_id: str, *, limit: int = 100) -> Sequence[RunRecord]: ...
+
+
+@runtime_checkable
+class Scheduler(Protocol):
+    """Standing intents: agent-schedules, Temporal Schedules, or an in-memory scheduler.
+    Firing creates a run through the same request contract as any other entry point."""
+
+    async def create(self, spec: ScheduleSpec) -> Schedule: ...
+
+    async def get(self, schedule_id: str) -> Schedule | None: ...
+
+    async def list_for_tenant(self, tenant_id: str, *, limit: int = 100) -> Sequence[Schedule]: ...
+
+    async def set_enabled(self, schedule_id: str, enabled: bool) -> Schedule: ...
+
+    async def delete(self, schedule_id: str) -> None: ...
+
+
+@runtime_checkable
+class FeedbackStore(Protocol):
+    """Where :class:`Feedback` is kept: the Memory Service (``POST /v1/feedback``) or an
+    in-memory store in tests. The system of record; ``EvaluationProvider.submit_feedback``
+    is the tracing backend's copy. A store verifies a record's identity fields against the
+    authenticated caller: the record only claims who it is from."""
+
+    async def submit(self, feedback: Feedback) -> Feedback: ...
+
+    async def list_for(
+        self, target_kind: FeedbackTargetKind, target_id: str, *, limit: int = 100
+    ) -> Sequence[Feedback]: ...
+
+
+@runtime_checkable
+class Judge(Protocol):
+    """Scores a finished run, off the critical path. ``None`` means the judge abstained
+    (unsampled, over budget, nothing to check)."""
+
+    async def judge(
+        self, event: AgentEvalEvent, /, *, response: AgentResponse | None = None
+    ) -> JudgeVerdict | None: ...
+
+
+@runtime_checkable
+class AgentDirectory(Protocol):
+    """Agents another agent may call, as Agent Cards: the AI Registry, or a static list."""
+
+    async def get(self, agent_id: str) -> AgentCard | None: ...
+
+    async def find(
+        self, query: str | None = None, *, skill: str | None = None, limit: int = 20
+    ) -> Sequence[AgentCard]: ...
+
+    async def publish(self, card: AgentCard) -> None: ...
 
 
 # --------------------------------------------------------------------------- pipeline

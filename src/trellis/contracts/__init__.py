@@ -1,5 +1,16 @@
-"""Framework-neutral contracts. Everything the harness exchanges with an application."""
+"""Framework-neutral contracts: everything the platform's packages exchange (harness,
+surfaces, Memory Service, A2A, schedulers). ADR 0001 in docs/adr describes the v2 seams."""
 
+from importlib.metadata import version as _version
+
+from trellis.contracts.a2a import (
+    A2A_PROTOCOL_VERSION,
+    AgentCapabilities,
+    AgentCard,
+    AgentInterface,
+    AgentProvider,
+    AgentSkill,
+)
 from trellis.contracts.artifacts import (
     OBSERVATION_KINDS,
     AgentWarning,
@@ -27,41 +38,72 @@ from trellis.contracts.errors import (
     ToolNotFoundError,
     classify,
 )
+from trellis.contracts.evaluation import JudgeMethod, JudgeVerdict
 from trellis.contracts.events import AgentEvalEvent, LifecycleEvent
-from trellis.contracts.ids import new_id, safe_id, stable_id
+from trellis.contracts.feedback import Feedback, FeedbackSource, FeedbackTargetKind, FeedbackVerdict
+from trellis.contracts.ids import new_id, now, safe_id, stable_id
 from trellis.contracts.messages import AgentRequest, AgentResponse, AgentStatus
 from trellis.contracts.model import ModelRequest, ModelResponse, ModelUsage
 from trellis.contracts.ports import (
+    AgentDirectory,
     AgentInterceptor,
     AgentPolicyProvider,
     AgentRegistryClient,
     ArtifactClient,
     EvaluationProvider,
     EvaluationSink,
+    EventSink,
+    FeedbackStore,
     FrameworkAdapter,
+    Judge,
     LifecycleListener,
     MemoryPort,
     ModelClient,
     PromptProvider,
+    RunStore,
+    Scheduler,
     TelemetryProvider,
     TelemetryRedactor,
     ToolClient,
 )
-from trellis.contracts.tool import ToolCall, ToolOutcome, ToolSpec
+from trellis.contracts.runs import (
+    Interrupt,
+    InterruptDecision,
+    InterruptReason,
+    InterruptResolution,
+    RunEvent,
+    RunEventType,
+    RunOutcome,
+    RunRecord,
+    RunStart,
+    RunStatus,
+    Schedule,
+    ScheduleSpec,
+)
+from trellis.contracts.tool import ToolCall, ToolOutcome, ToolSpec, ToolStatus
+
+__version__ = _version("trellis-contracts")
 
 __all__ = [
+    "A2A_PROTOCOL_VERSION",
     "OBSERVATION_KINDS",
     "AgentCancelledError",
+    "AgentCapabilities",
+    "AgentCard",
     "AgentDescriptor",
+    "AgentDirectory",
     "AgentError",
     "AgentEvalEvent",
     "AgentExecutionContext",
     "AgentInterceptor",
+    "AgentInterface",
     "AgentPaused",
     "AgentPolicyProvider",
+    "AgentProvider",
     "AgentRegistryClient",
     "AgentRequest",
     "AgentResponse",
+    "AgentSkill",
     "AgentStatus",
     "AgentTimeoutError",
     "AgentWarning",
@@ -72,9 +114,22 @@ __all__ = [
     "ErrorCategory",
     "EvaluationProvider",
     "EvaluationSink",
+    "EventSink",
     "EvidenceRef",
+    "Feedback",
+    "FeedbackSource",
+    "FeedbackStore",
+    "FeedbackTargetKind",
+    "FeedbackVerdict",
     "FrameworkAdapter",
     "HarnessError",
+    "Interrupt",
+    "InterruptDecision",
+    "InterruptReason",
+    "InterruptResolution",
+    "Judge",
+    "JudgeMethod",
+    "JudgeVerdict",
     "LifecycleEvent",
     "LifecycleListener",
     "MemoryObservation",
@@ -89,6 +144,16 @@ __all__ = [
     "PromptProvider",
     "RecommendedAction",
     "ResultValidationError",
+    "RunEvent",
+    "RunEventType",
+    "RunOutcome",
+    "RunRecord",
+    "RunStart",
+    "RunStatus",
+    "RunStore",
+    "Schedule",
+    "ScheduleSpec",
+    "Scheduler",
     "SkillDescriptor",
     "TelemetryProvider",
     "TelemetryRedactor",
@@ -98,8 +163,10 @@ __all__ = [
     "ToolNotFoundError",
     "ToolOutcome",
     "ToolSpec",
+    "ToolStatus",
     "classify",
     "new_id",
+    "now",
     "safe_id",
     "stable_id",
 ]

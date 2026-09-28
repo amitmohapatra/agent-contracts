@@ -3,6 +3,7 @@ identity, schema, call, result, streaming, idempotency and authorization metadat
 
 from __future__ import annotations
 
+from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -47,13 +48,23 @@ class ToolCall(BaseModel):
     idempotency_key: str | None = None
 
 
+class ToolStatus(StrEnum):
+    """How a tool call ended. ``StrEnum`` so ``outcome.status == "ok"`` keeps working."""
+
+    OK = "ok"
+    ERROR = "error"
+    TIMEOUT = "timeout"
+    REJECTED = "rejected"
+    CANCELLED = "cancelled"
+
+
 class ToolOutcome(BaseModel):
     """The normalized result of a tool call."""
 
-    model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
+    model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True, validate_assignment=True)
 
     tool: str
-    status: str = "ok"
+    status: ToolStatus = ToolStatus.OK
     output: Any = None
     output_summary: str | None = None
     artifacts: list[ArtifactRef] = Field(default_factory=list)
@@ -66,4 +77,4 @@ class ToolOutcome(BaseModel):
 
     @property
     def ok(self) -> bool:
-        return self.status == "ok"
+        return self.status == ToolStatus.OK

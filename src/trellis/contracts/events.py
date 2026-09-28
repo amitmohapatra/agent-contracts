@@ -12,6 +12,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from trellis.contracts.artifacts import EvidenceRef
+from trellis.contracts.messages import AgentStatus
 
 
 class LifecycleEvent(StrEnum):
@@ -49,7 +50,7 @@ class AgentEvalEvent(BaseModel):
     evidence_refs: list[EvidenceRef] = Field(default_factory=list)
     model_metadata: list[dict[str, Any]] = Field(default_factory=list)
     tool_calls: list[dict[str, Any]] = Field(default_factory=list)
-    status: str = "SUCCESS"
+    status: AgentStatus = AgentStatus.SUCCESS
     latency_ms: float = 0.0
     metrics: dict[str, float] = Field(default_factory=dict)
     metadata: dict[str, Any] = Field(default_factory=dict)
