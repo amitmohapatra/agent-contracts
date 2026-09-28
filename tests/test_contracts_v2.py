@@ -471,7 +471,7 @@ def test_an_agent_card_is_the_descriptor_in_a2a_spelling() -> None:
     assert (
         a2a["name"] == "refund-agent"
         and a2a["version"] == "1.2.0"
-        and a2a["protocolVersion"] == "0.3.0"
+        and a2a["protocolVersion"] == "1.0"  # what a2a-sdk 1.x actually speaks
     )
     assert a2a["capabilities"] == {
         "streaming": True,

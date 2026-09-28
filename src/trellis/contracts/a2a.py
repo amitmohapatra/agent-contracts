@@ -1,4 +1,4 @@
-"""The A2A Agent Card (protocol 0.3.0) as a mapping from the platform's own identity
+"""The A2A Agent Card (protocol 1.0) as a mapping from the platform's own identity
 (PLATFORM-DESIGN §9).
 
 Generated from the Registry entity and its :class:`AgentDescriptor`; the card's JSON uses the
@@ -18,7 +18,11 @@ from pydantic.alias_generators import to_camel
 
 from trellis.contracts.descriptors import AgentDescriptor, SkillDescriptor
 
-A2A_PROTOCOL_VERSION = "0.3.0"
+#: The protocol version a served card declares. It tracks what the transport actually
+#: speaks: ``a2a-sdk`` 1.x is protocol 1.0, and a card that claimed 0.3.0 while the wire
+#: answered 1.0 would tell a caller to negotiate the wrong dialect. The A2A surface pins
+#: this against the SDK's own ``PROTOCOL_VERSION_CURRENT``.
+A2A_PROTOCOL_VERSION = "1.0"
 _TEXT_PLAIN = "text/plain"
 _A2A = ConfigDict(frozen=True, extra="ignore", alias_generator=to_camel, validate_by_name=True)
 
