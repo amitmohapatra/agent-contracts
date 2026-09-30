@@ -58,7 +58,7 @@ classDiagram
   class RunStart {
     +run_id, tenant_id, agent_id, workspace_id
     +on_behalf_of, input, deadline
-    +idempotency_key, webhook_url
+    +idempotency_key
   }
   class RunRecord {
     +status: RunStatus

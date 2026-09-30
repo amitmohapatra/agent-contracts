@@ -61,6 +61,13 @@ new dependency.
   `last_run_id`, `consecutive_failures` (fires that could not queue a run, `≥ 0`),
   `last_error` (a JSON object) and `retry_after` (a retryable fire failure backs off until
   then). `ScheduleSpec.name` is at most 200 characters, as the service stores it.
+- **No per-run webhooks.** `RunStart`, `RunStart.from_request` and `ScheduleSpec` carry no
+  `webhook_url` (it replaces ADR 0001's note that it travels in metadata). Notifications
+  (`run.paused`, `run.escalated`, `run.finished`) go to the tenant's webhook subscriptions in
+  agent-runs, which refuses a `webhook_url` field with a 422 (the models forbid it).
+- **Payloads out of the checkpoint.** Large review data (an `ask` table, a diff) is uploaded
+  to agent-runs as a run artifact and travels as `Interrupt.payload_ref` (an `ArtifactRef`:
+  `artifact_id`, `uri`, `mime_type`, `checksum`, `size_bytes`), so checkpoints stay small.
 - **Field policy unchanged** (ADR 0001): what the platform writes refuses unknown fields
   (`RunStart`, `Interrupt`, `ScheduleSpec`...); what is read back from a store (`RunRecord`,
   `Schedule`) ignores them. Every timestamp, the new `deadline` and `retry_after` included,

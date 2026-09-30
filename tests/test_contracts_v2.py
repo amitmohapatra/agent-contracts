@@ -122,7 +122,7 @@ def test_a_run_starts_from_the_request_and_is_recorded_as_running(
 ) -> None:
     child = ctx.for_agent("worker", deadline=datetime.now(UTC) + timedelta(seconds=60))
     request = AgentRequest.create(child, input={"order": 91}, metadata={"channel": "chat"})
-    start = RunStart.from_request(request, webhook_url="https://hooks.example/run")
+    start = RunStart.from_request(request)
     assert start.run_id == child.agent_run_id and start.parent_run_id == ctx.agent_run_id
     assert start.tenant_id == "acme" and start.user_id == "u1" and start.thread_id == "thr_1"
     assert start.deadline == child.deadline and start.input == {"order": 91}
@@ -669,6 +669,24 @@ def test_schedules_are_specs_with_identity() -> None:
             ScheduleSpec(**{**spec.model_dump(), field: "  "})
     with pytest.raises(ValidationError, match="unknown timezone"):
         ScheduleSpec(**{**spec.model_dump(), "timezone": "Mars/Olympus"})
+
+
+def test_runs_and_schedules_carry_no_webhook_url() -> None:
+    """Notifications go to the tenant's webhook subscriptions, never a per-run URL."""
+    assert "webhook_url" not in RunStart.model_fields
+    assert "webhook_url" not in ScheduleSpec.model_fields
+    assert "webhook_url" not in inspect.signature(RunStart.from_request).parameters
+    with pytest.raises(ValidationError, match="webhook_url"):
+        RunStart(tenant_id="t", agent_id="a", webhook_url="https://hooks.example/run")  # type: ignore[call-arg]
+    with pytest.raises(ValidationError, match="webhook_url"):
+        ScheduleSpec(
+            tenant_id="t",
+            agent_id="a",
+            name="n",
+            cadence="daily",
+            on_behalf_of="u1",
+            webhook_url="https://hooks.example/s",  # type: ignore[call-arg]
+        )
 
 
 def test_a_schedule_records_its_author_and_how_its_fires_went() -> None:

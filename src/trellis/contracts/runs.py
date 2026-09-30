@@ -92,9 +92,8 @@ class RunStart(BaseModel):
     """What starting a run records. ``run_id`` comes from the caller's context, or is minted
     here when a service queues a run nobody is waiting on (a schedule firing);
     ``idempotency_key`` makes a retried start return the same run; ``on_behalf_of`` is the
-    person a scheduled run acts for, fixed when the schedule was made; ``webhook_url`` is
-    captured now because the caller who wants to know is present now and not when the run
-    pauses at 3 a.m."""
+    person a scheduled run acts for, fixed when the schedule was made. Notifications are not
+    part of a run: agent-runs delivers them to the tenant's webhook subscriptions."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -109,11 +108,10 @@ class RunStart(BaseModel):
     input: Any = None
     deadline: AwareDatetime | None = None
     idempotency_key: str | None = None
-    webhook_url: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     @classmethod
-    def from_request(cls, request: AgentRequest, *, webhook_url: str | None = None) -> Self:
+    def from_request(cls, request: AgentRequest) -> Self:
         context = request.context
         return cls(
             run_id=context.agent_run_id,
@@ -126,7 +124,6 @@ class RunStart(BaseModel):
             input=request.input,
             deadline=context.deadline,
             idempotency_key=context.idempotency_key("run", "start"),
-            webhook_url=webhook_url,
             metadata=dict(request.metadata),
         )
 
@@ -577,7 +574,6 @@ class ScheduleSpec(BaseModel):
     input: Any = None
     workspace_id: str | None = None
     enabled: bool = True
-    webhook_url: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("name", "cadence", "on_behalf_of")

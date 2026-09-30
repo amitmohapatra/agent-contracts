@@ -59,8 +59,8 @@ with no runtime, transport, I/O or new dependency.
   `AgentEvalEvent.status` is `AgentStatus`.
 - **Schedules.** `ScheduleSpec` names the schedule and the person it acts for (required, as
   agent-schedules requires), a cron expression or a named bucket in a real timezone; the
-  contract's `workspace_id` and `webhook_url` travel in the service's metadata until it has
-  the columns.
+  contract's `workspace_id` travels in the service's metadata until it has the column.
+  (`webhook_url` was removed by ADR 0002.)
 - **Field policy.** Records the platform writes and streams refuse unknown fields; records
   read back from a store (`RunRecord`, `Schedule`) and cards read from another agent ignore
   them. Every timestamp is timezone-aware. Ids are prefixed with an underscore (`int_`,
