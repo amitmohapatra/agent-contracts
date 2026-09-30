@@ -551,8 +551,8 @@ class RunEvent(BaseModel):
 
 class ScheduleSpec(BaseModel):
     """A standing intent ("every weekday at 8"): which agent, what input, on whose behalf.
-    ``cadence`` is a cron expression or one of the scheduler's named buckets (``hourly``,
-    ``daily``, ``weekly``, ``weekdays``, ``manual``) evaluated in ``timezone``; the scheduler
+    ``cadence`` is a cron expression or one of agent-runs' named buckets (``hourly``,
+    ``daily``, ``weekly``, ``weekdays``, ``manual``) evaluated in ``timezone``; agent-runs
     validates the expression and its floor. ``on_behalf_of`` is required: a run fired with
     nobody present acts as the person who set the schedule, never wider."""
 
@@ -560,7 +560,7 @@ class ScheduleSpec(BaseModel):
 
     tenant_id: str
     agent_id: str
-    name: str
+    name: str = Field(max_length=200)
     cadence: str
     timezone: str = "UTC"
     on_behalf_of: str
@@ -588,14 +588,26 @@ class ScheduleSpec(BaseModel):
 
 
 class Schedule(ScheduleSpec):
-    """A schedule as a scheduler keeps it. Read back from a store, so unknown columns are
-    ignored rather than refused."""
+    """A schedule as agent-runs keeps it. Read back from a store, so unknown columns are
+    ignored rather than refused.
+
+    ``created_by`` is the principal whose credential created it, taken from that credential
+    and never from the spec (which refuses the field): a self-asserted author is no audit
+    trail. ``last_run_id`` is the run the last fire queued. ``consecutive_failures`` and
+    ``last_error`` count fires that could not queue a run, not runs that failed; while a
+    retryable failure backs off, the schedule stays armed for the same tick but is not
+    fired again before ``retry_after``."""
 
     model_config = ConfigDict(frozen=True, extra="ignore")
 
     schedule_id: str = Field(default_factory=lambda: new_id("sch_"))
+    created_by: str | None = None
     next_fire_at: AwareDatetime | None = None
     last_fired_at: AwareDatetime | None = None
+    last_run_id: str | None = None
+    consecutive_failures: int = Field(default=0, ge=0)
+    last_error: dict[str, Any] | None = None
+    retry_after: AwareDatetime | None = None
     created_at: AwareDatetime = Field(default_factory=now)
     updated_at: AwareDatetime = Field(default_factory=now)
 

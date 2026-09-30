@@ -650,14 +650,40 @@ def test_schedules_are_specs_with_identity() -> None:
         and schedule.on_behalf_of == "u1"
     )
     assert Schedule.from_spec(spec).schedule_id.startswith("sch_")
-    assert (
-        Schedule.model_validate({**spec.model_dump(), "created_by": "u1"}).name == "Morning digest"
-    )
+    # read back from a store: an unknown column is ignored, not refused
+    assert Schedule.model_validate({**spec.model_dump(), "legacy": 1}).name == "Morning digest"
+    with pytest.raises(ValidationError, match="200"):
+        ScheduleSpec(**{**spec.model_dump(), "name": "x" * 201})
     for field in ("name", "cadence", "on_behalf_of"):
         with pytest.raises(ValidationError, match="blank"):
             ScheduleSpec(**{**spec.model_dump(), field: "  "})
     with pytest.raises(ValidationError, match="unknown timezone"):
         ScheduleSpec(**{**spec.model_dump(), "timezone": "Mars/Olympus"})
+
+
+def test_a_schedule_records_its_author_and_how_its_fires_went() -> None:
+    spec = ScheduleSpec(tenant_id="t", agent_id="a", name="n", cadence="daily", on_behalf_of="u1")
+    fresh = Schedule.from_spec(spec)
+    assert fresh.created_by is None and fresh.last_run_id is None and fresh.last_error is None
+    assert fresh.consecutive_failures == 0 and fresh.retry_after is None
+    # the author comes from the credential, so a spec cannot claim one
+    with pytest.raises(ValidationError, match="created_by"):
+        ScheduleSpec(**spec.model_dump(), created_by="admin")
+    retry = datetime(2026, 10, 1, 8, 5, tzinfo=UTC)
+    failing = Schedule.from_spec(
+        spec,
+        created_by="admin",
+        last_run_id="run_1",
+        consecutive_failures=2,
+        last_error={"status": 503, "message": "agent-runs unavailable"},
+        retry_after=retry,
+    )
+    assert failing.created_by == "admin" and failing.retry_after == retry
+    assert Schedule.model_validate_json(failing.model_dump_json()) == failing
+    with pytest.raises(ValidationError):
+        Schedule.from_spec(spec, consecutive_failures=-1)
+    with pytest.raises(ValidationError, match="timezone"):
+        Schedule.from_spec(spec, retry_after=datetime(2026, 10, 1, 8, 5))
 
 
 def test_tool_status_is_an_enum_that_still_compares_to_its_strings() -> None:
