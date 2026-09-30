@@ -26,12 +26,10 @@ from trellis.contracts import (
     AgentResponse,
     AgentStatus,
     ErrorCategory,
-    EvaluationSink,
     EventSink,
     EvidenceRef,
     Feedback,
     FeedbackSource,
-    FeedbackStore,
     FeedbackTargetKind,
     FeedbackVerdict,
     Interrupt,
@@ -49,11 +47,12 @@ from trellis.contracts import (
     RunStatus,
     RunStore,
     Schedule,
-    Scheduler,
     ScheduleSpec,
     ToolCall,
     ToolOutcome,
     ToolStatus,
+    events,
+    ports,
 )
 
 TRACE = "4bf92f3577b34da6a3ce929d0e0e4736"
@@ -735,27 +734,6 @@ class _Sink:
         self.events.append(event)
 
 
-class _EvalSink:
-    async def emit(self, event: AgentEvalEvent) -> None:
-        return None
-
-
-class _Feedback:
-    def __init__(self) -> None:
-        self.items: list[Feedback] = []
-
-    async def submit(self, feedback: Feedback) -> Feedback:
-        self.items.append(feedback)
-        return feedback
-
-    async def list_for(
-        self, target_kind: FeedbackTargetKind, target_id: str, *, limit: int = 100
-    ) -> Sequence[Feedback]:
-        return [f for f in self.items if f.target_kind == target_kind and f.target_id == target_id][
-            :limit
-        ]
-
-
 class _Judge:
     async def judge(
         self, event: AgentEvalEvent, /, *, response: AgentResponse | None = None
@@ -776,30 +754,11 @@ class _Directory:
         return None
 
 
-class _Scheduler:
-    async def create(self, spec: ScheduleSpec) -> Schedule:
-        return Schedule.from_spec(spec)
-
-    async def get(self, schedule_id: str) -> Schedule | None:
-        return None
-
-    async def list_for_tenant(self, tenant_id: str, *, limit: int = 100) -> Sequence[Schedule]:
-        return []
-
-    async def set_enabled(self, schedule_id: str, enabled: bool) -> Schedule:
-        raise KeyError(schedule_id)
-
-    async def delete(self, schedule_id: str) -> None:
-        return None
-
-
 _IMPLEMENTATIONS: list[tuple[type, type]] = [
     (_Runs, RunStore),
     (_Sink, EventSink),
-    (_Feedback, FeedbackStore),
     (_Judge, Judge),
     (_Directory, AgentDirectory),
-    (_Scheduler, Scheduler),
 ]
 
 
@@ -815,11 +774,6 @@ def test_the_ports_are_satisfied_method_for_method(implementation: type, port: t
         assert inspect.signature(getattr(implementation, name)) == inspect.signature(member), (
             f"{port.__name__}.{name}"
         )
-
-
-def test_the_two_sinks_are_told_apart() -> None:
-    assert isinstance(_EvalSink(), EvaluationSink) and not isinstance(_EvalSink(), EventSink)
-    assert isinstance(_Sink(), EventSink) and not isinstance(_Sink(), EvaluationSink)
 
 
 async def test_a_run_moves_through_a_store(ctx: AgentExecutionContext) -> None:
@@ -876,11 +830,31 @@ def test_everything_new_is_exported_and_the_version_is_the_installed_one() -> No
         "ToolStatus",
         "EventSink",
         "RunStore",
-        "Scheduler",
-        "FeedbackStore",
         "Judge",
         "AgentDirectory",
         "now",
     ):
         assert name in contracts.__all__ and hasattr(contracts, name), name
     assert contracts.__version__ == md.version("trellis-contracts")
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "FrameworkAdapter",
+        "PromptProvider",
+        "FeedbackStore",
+        "Scheduler",
+        "LifecycleListener",
+        "AgentRegistryClient",
+        "EvaluationSink",
+        "LifecycleEvent",
+    ],
+)
+def test_retired_names_are_gone(name: str) -> None:
+    assert name not in contracts.__all__ and not hasattr(contracts, name)
+    assert not hasattr(ports, name) and not hasattr(events, name)
+
+
+def test_feedback_is_not_an_evaluation_provider_concern() -> None:
+    assert not hasattr(contracts.EvaluationProvider, "submit_feedback")

@@ -7,18 +7,16 @@ injected. That is what keeps the core framework- and vendor-neutral.
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Awaitable, Mapping, Sequence
+from collections.abc import AsyncIterator, Mapping, Sequence
 from contextlib import AbstractContextManager
 from typing import Any, Protocol, runtime_checkable
 
 from trellis.contracts.a2a import AgentCard
 from trellis.contracts.artifacts import ArtifactRef, MemoryObservation
 from trellis.contracts.context import AgentExecutionContext
-from trellis.contracts.descriptors import AgentDescriptor
 from trellis.contracts.errors import AgentError
 from trellis.contracts.evaluation import JudgeVerdict
 from trellis.contracts.events import AgentEvalEvent
-from trellis.contracts.feedback import Feedback, FeedbackTargetKind
 from trellis.contracts.messages import AgentRequest, AgentResponse
 from trellis.contracts.model import ModelRequest, ModelResponse
 from trellis.contracts.runs import (
@@ -28,8 +26,6 @@ from trellis.contracts.runs import (
     RunRecord,
     RunStart,
     RunStatus,
-    Schedule,
-    ScheduleSpec,
 )
 from trellis.contracts.tool import ToolCall, ToolOutcome, ToolSpec
 
@@ -136,6 +132,9 @@ class TelemetryRedactor(Protocol):
 
 @runtime_checkable
 class EvaluationProvider(Protocol):
+    """The tracing backend's scores and datasets. Feedback is not sent here: the Memory
+    Service is the system of record for it."""
+
     async def score(
         self,
         name: str,
@@ -149,26 +148,8 @@ class EvaluationProvider(Protocol):
 
     async def submit_dataset_item(self, dataset: str, item: Mapping[str, Any]) -> None: ...
 
-    async def submit_feedback(self, feedback: Mapping[str, Any]) -> None: ...
 
-
-@runtime_checkable
-class EvaluationSink(Protocol):
-    """Where :class:`AgentEvalEvent` values go. Async, off the critical path (§29)."""
-
-    async def emit(self, event: AgentEvalEvent) -> None: ...
-
-
-@runtime_checkable
-class PromptProvider(Protocol):
-    """Prompt management (§31). Optional; agents work without one."""
-
-    # ``name`` is positional-only: a prompt's own variables may legitimately be called
-    # "name", and they arrive in ``**vars``.
-    async def get_prompt(self, name: str, /, *, version: str | None = None, **vars: Any) -> Any: ...
-
-
-# --------------------------------------------------------------------------- policy / registry
+# --------------------------------------------------------------------------- policy
 
 
 @runtime_checkable
@@ -186,15 +167,6 @@ class AgentPolicyProvider(Protocol):
     ) -> bool | str: ...
 
 
-@runtime_checkable
-class AgentRegistryClient(Protocol):
-    """Future agent registry (§47). Default implementation is a no-op."""
-
-    async def register(self, descriptor: AgentDescriptor) -> None: ...
-
-    async def heartbeat(self, descriptor: AgentDescriptor, *, status: str = "healthy") -> None: ...
-
-
 # --------------------------------------------------------------------------- runs / surfaces
 
 
@@ -210,9 +182,9 @@ class EventSink(Protocol):
 
 @runtime_checkable
 class RunStore(Protocol):
-    """Where a run outlives the process: agent-runs, Temporal, or an in-memory store in
-    tests. A run is started idempotently by its id, paused with the interrupt it waits on,
-    resumed with the resolution it got, and finished once."""
+    """Where a run outlives the process: agent-runs, or an in-memory store in tests. A run
+    is started idempotently by its id, paused with the interrupt it waits on, resumed with
+    the resolution it got, and finished once."""
 
     async def started(self, start: RunStart) -> RunRecord: ...
 
@@ -232,36 +204,6 @@ class RunStore(Protocol):
     async def get(self, run_id: str) -> RunRecord | None: ...
 
     async def list_paused(self, tenant_id: str, *, limit: int = 100) -> Sequence[RunRecord]: ...
-
-
-@runtime_checkable
-class Scheduler(Protocol):
-    """Standing intents: agent-schedules, Temporal Schedules, or an in-memory scheduler.
-    Firing creates a run through the same request contract as any other entry point."""
-
-    async def create(self, spec: ScheduleSpec) -> Schedule: ...
-
-    async def get(self, schedule_id: str) -> Schedule | None: ...
-
-    async def list_for_tenant(self, tenant_id: str, *, limit: int = 100) -> Sequence[Schedule]: ...
-
-    async def set_enabled(self, schedule_id: str, enabled: bool) -> Schedule: ...
-
-    async def delete(self, schedule_id: str) -> None: ...
-
-
-@runtime_checkable
-class FeedbackStore(Protocol):
-    """Where :class:`Feedback` is kept: the Memory Service (``POST /v1/feedback``) or an
-    in-memory store in tests. The system of record; ``EvaluationProvider.submit_feedback``
-    is the tracing backend's copy. A store verifies a record's identity fields against the
-    authenticated caller: the record only claims who it is from."""
-
-    async def submit(self, feedback: Feedback) -> Feedback: ...
-
-    async def list_for(
-        self, target_kind: FeedbackTargetKind, target_id: str, *, limit: int = 100
-    ) -> Sequence[Feedback]: ...
 
 
 @runtime_checkable
@@ -311,25 +253,3 @@ class AgentInterceptor(Protocol):
     async def after(self, result: AgentResponse, runtime: Runtime) -> AgentResponse: ...
 
     async def on_error(self, error: AgentError, runtime: Runtime) -> AgentResponse | None: ...
-
-
-@runtime_checkable
-class LifecycleListener(Protocol):
-    """Observes lifecycle events. Must not raise; the harness swallows and logs if it does."""
-
-    def on_event(self, event: str, payload: Mapping[str, Any]) -> Awaitable[None] | None: ...
-
-
-@runtime_checkable
-class FrameworkAdapter(Protocol):
-    """Framework-specific wrapping (§50). The only place a framework may be imported."""
-
-    name: str
-
-    def supports(self, target: object) -> bool: ...
-
-    def wrap(self, target: object, config: Any) -> object: ...
-
-    def extract_context(self, *args: Any, **kwargs: Any) -> AgentExecutionContext | None: ...
-
-    def map_result(self, result: AgentResponse, *args: Any, **kwargs: Any) -> object: ...

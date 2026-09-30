@@ -16,13 +16,13 @@ without pulling in a gateway, a database or an agent framework.
 | `tool` | `ToolSpec`, `ToolCall`, `ToolOutcome`, `ToolStatus` |
 | `model` | `ModelRequest`, `ModelResponse`, `ModelUsage` |
 | `errors` | The typed failures a caller can branch on, `AgentPaused`, and `classify()` |
-| `events` | `LifecycleEvent`, `AgentEvalEvent` |
+| `events` | `AgentEvalEvent`, what a judge scores a finished run from |
 | `descriptors` | `AgentDescriptor`, `SkillDescriptor` |
 | `runs` | `RunStart`, `RunRecord`, `RunStatus`, the `RunEvent` stream, `Interrupt` and `InterruptResolution`, `ScheduleSpec` and `Schedule` |
 | `feedback` | `Feedback` with its target kinds, verdicts and sources |
 | `evaluation` | `JudgeVerdict`, `JudgeMethod` |
 | `a2a` | `AgentCard` and its parts, mapped from `AgentDescriptor` |
-| `ports` | Every outbound dependency as a Protocol: model, tool, artifact, memory, telemetry, evaluation, prompt, policy, registry, event sink, run store, scheduler, feedback store, judge, agent directory, interceptor, framework adapter |
+| `ports` | Every outbound dependency as a Protocol: model, tool, artifact, memory, telemetry, redaction, evaluation, policy, event sink, run store, judge, agent directory, interceptor |
 | `ids` | `new_id`, `stable_id`, `safe_id`, `now` |
 
 ## The shape of it
@@ -158,26 +158,12 @@ classDiagram
     <<Protocol>>
     score()
     submit_dataset_item()
-    submit_feedback()
-  }
-  class EvaluationSink {
-    <<Protocol>>
-    emit(AgentEvalEvent)
-  }
-  class PromptProvider {
-    <<Protocol>>
-    get_prompt()
   }
   class AgentPolicyProvider {
     <<Protocol>>
     authorize_execution()
     authorize_tool()
     authorize_model()
-  }
-  class AgentRegistryClient {
-    <<Protocol>>
-    register()
-    heartbeat()
   }
   class EventSink {
     <<Protocol>>
@@ -191,19 +177,6 @@ classDiagram
     finished()
     get()
     list_paused()
-  }
-  class Scheduler {
-    <<Protocol>>
-    create()
-    get()
-    list_for_tenant()
-    set_enabled()
-    delete()
-  }
-  class FeedbackStore {
-    <<Protocol>>
-    submit()
-    list_for()
   }
   class Judge {
     <<Protocol>>
@@ -220,17 +193,6 @@ classDiagram
     before()
     after()
     on_error()
-  }
-  class LifecycleListener {
-    <<Protocol>>
-    on_event()
-  }
-  class FrameworkAdapter {
-    <<Protocol>>
-    supports()
-    wrap()
-    extract_context()
-    map_result()
   }
 ```
 

@@ -1,5 +1,6 @@
 """Framework-neutral contracts: everything the platform's packages exchange (harness,
-surfaces, Memory Service, A2A, schedulers). ADR 0001 in docs/adr describes the v2 seams."""
+surfaces, Memory Service, A2A, agent-runs). ADRs 0001 and 0002 in docs/adr describe the
+seams."""
 
 from importlib.metadata import version as _version
 
@@ -39,7 +40,7 @@ from trellis.contracts.errors import (
     classify,
 )
 from trellis.contracts.evaluation import JudgeMethod, JudgeVerdict
-from trellis.contracts.events import AgentEvalEvent, LifecycleEvent
+from trellis.contracts.events import AgentEvalEvent
 from trellis.contracts.feedback import Feedback, FeedbackSource, FeedbackTargetKind, FeedbackVerdict
 from trellis.contracts.ids import new_id, now, safe_id, stable_id
 from trellis.contracts.messages import AgentRequest, AgentResponse, AgentStatus
@@ -48,20 +49,13 @@ from trellis.contracts.ports import (
     AgentDirectory,
     AgentInterceptor,
     AgentPolicyProvider,
-    AgentRegistryClient,
     ArtifactClient,
     EvaluationProvider,
-    EvaluationSink,
     EventSink,
-    FeedbackStore,
-    FrameworkAdapter,
     Judge,
-    LifecycleListener,
     MemoryPort,
     ModelClient,
-    PromptProvider,
     RunStore,
-    Scheduler,
     TelemetryProvider,
     TelemetryRedactor,
     ToolClient,
@@ -100,7 +94,6 @@ __all__ = [
     "AgentPaused",
     "AgentPolicyProvider",
     "AgentProvider",
-    "AgentRegistryClient",
     "AgentRequest",
     "AgentResponse",
     "AgentSkill",
@@ -113,15 +106,12 @@ __all__ = [
     "ConfigurationError",
     "ErrorCategory",
     "EvaluationProvider",
-    "EvaluationSink",
     "EventSink",
     "EvidenceRef",
     "Feedback",
     "FeedbackSource",
-    "FeedbackStore",
     "FeedbackTargetKind",
     "FeedbackVerdict",
-    "FrameworkAdapter",
     "HarnessError",
     "Interrupt",
     "InterruptDecision",
@@ -130,8 +120,6 @@ __all__ = [
     "Judge",
     "JudgeMethod",
     "JudgeVerdict",
-    "LifecycleEvent",
-    "LifecycleListener",
     "MemoryObservation",
     "MemoryPort",
     "MemoryUnavailableError",
@@ -141,7 +129,6 @@ __all__ = [
     "ModelResponse",
     "ModelUsage",
     "PolicyDeniedError",
-    "PromptProvider",
     "RecommendedAction",
     "ResultValidationError",
     "RunEvent",
@@ -153,7 +140,6 @@ __all__ = [
     "RunStore",
     "Schedule",
     "ScheduleSpec",
-    "Scheduler",
     "SkillDescriptor",
     "TelemetryProvider",
     "TelemetryRedactor",
