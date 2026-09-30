@@ -13,11 +13,12 @@ UI, a webhook or another tenant's agent sees it.
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Any, Self
+from typing import Any, Literal, Self
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from trellis.contracts.artifacts import ArtifactRef
 from trellis.contracts.context import AgentExecutionContext
 from trellis.contracts.errors import AgentError, AgentPaused
 from trellis.contracts.feedback import Feedback, FeedbackSource, FeedbackTargetKind, FeedbackVerdict
@@ -141,15 +142,24 @@ class InterruptReason(StrEnum):
     #: a tool call needs approval (policy said ``require_approval``, or the tool is not
     #: auto-executable)
     APPROVAL = "APPROVAL"
+    #: a person reviews and may correct a draft; ``expects`` is the shape of the correction
+    REVIEW = "REVIEW"
+    #: a person picks one of ``options``
+    CHOICE = "CHOICE"
     #: a credential or consent the person must supply
     AUTH = "AUTH"
 
 
 class Interrupt(BaseModel):
     """The framework-neutral record of a paused run: what is asked, what shape an answer
-    takes, what the UI needs, and the tool call under approval when there is one. Surfaces
-    translate it (AG-UI ``RunFinished{outcome: interrupt}``, A2A ``input-required``, a webhook)
-    and the run store keeps it as ``awaiting``."""
+    takes, what the UI needs, who must answer by when, and the tool call under approval when
+    there is one. Surfaces translate it (AG-UI ``RunFinished{outcome: interrupt}``, A2A
+    ``input-required``, a webhook) and the run store keeps it as ``awaiting``.
+
+    ``ui`` is the control a surface renders; ``assignee`` is a principal (``user:u1``,
+    ``role:procurement``) an inbox is filtered by; past ``deadline`` the run goes to
+    ``escalate_to``, or times out when nobody is named. Data too large to travel with the
+    question (a table, a diff) goes by reference in ``payload_ref``."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -158,9 +168,15 @@ class Interrupt(BaseModel):
     run_id: str
     reason: InterruptReason = InterruptReason.QUESTION
     question: str
+    ui: Literal["approve", "form", "table", "diff", "choice"] = "approve"
     expects: dict[str, Any] | None = None
+    options: list[str] = Field(default_factory=list)
     payload: dict[str, Any] | None = None
+    payload_ref: ArtifactRef | None = None
     tool_call: ToolCall | None = None
+    assignee: str | None = None
+    deadline: AwareDatetime | None = None
+    escalate_to: str | None = None
     created_at: AwareDatetime = Field(default_factory=now)
 
     @field_validator("question")
@@ -171,9 +187,15 @@ class Interrupt(BaseModel):
         return value
 
     @model_validator(mode="after")
-    def _an_approval_names_its_call(self) -> Self:
+    def _the_reason_carries_what_it_asks_about(self) -> Self:
         if self.reason is InterruptReason.APPROVAL and self.tool_call is None:
             raise ValueError("an APPROVAL interrupt carries the tool call under approval")
+        if self.reason is InterruptReason.CHOICE and not self.options:
+            raise ValueError("a CHOICE interrupt carries the options to choose from")
+        if self.reason is InterruptReason.REVIEW and self.expects is None:
+            raise ValueError("a REVIEW interrupt says what a correction looks like in expects")
+        if self.escalate_to is not None and self.deadline is None:
+            raise ValueError("escalate_to needs a deadline; without one it never happens")
         return self
 
     @classmethod
@@ -183,8 +205,10 @@ class Interrupt(BaseModel):
         *,
         context: AgentExecutionContext,
         reason: InterruptReason = InterruptReason.QUESTION,
-        tool_call: ToolCall | None = None,
+        **fields: Any,
     ) -> Self:
+        """The interrupt a pause raised in ``context`` becomes; ``fields`` add what the pause
+        does not carry (the tool call, the UI, the assignee and deadline...)."""
         return cls(
             tenant_id=context.tenant_id,
             run_id=context.agent_run_id,
@@ -192,7 +216,7 @@ class Interrupt(BaseModel):
             question=paused.question,
             expects=paused.expects,
             payload=paused.payload,
-            tool_call=tool_call,
+            **fields,
         )
 
     def awaiting(self) -> dict[str, Any]:

@@ -25,6 +25,7 @@ from trellis.contracts import (
     AgentRequest,
     AgentResponse,
     AgentStatus,
+    ArtifactRef,
     ErrorCategory,
     EventSink,
     EvidenceRef,
@@ -195,6 +196,8 @@ def test_an_interrupt_is_the_pause_plus_its_identity(ctx: AgentExecutionContext)
         "run_id",
         "reason",
         "question",
+        "ui",
+        "options",
         "created_at",
     }
 
@@ -210,6 +213,53 @@ def test_an_approval_names_its_tool_call_and_reasons_are_closed(ctx: AgentExecut
         _interrupt(ctx, reason=InterruptReason.APPROVAL)
     with pytest.raises(ValidationError):
         _interrupt(ctx, reason="MAYBE")  # type: ignore[arg-type]
+
+
+def test_choice_and_review_carry_what_they_ask_about(ctx: AgentExecutionContext) -> None:
+    with pytest.raises(ValidationError, match="options to choose from"):
+        _interrupt(ctx, reason=InterruptReason.CHOICE, ui="choice")
+    choice = _interrupt(ctx, reason=InterruptReason.CHOICE, ui="choice", options=["EU", "US"])
+    assert choice.options == ["EU", "US"] and choice.awaiting()["options"] == ["EU", "US"]
+    with pytest.raises(ValidationError, match="correction looks like"):
+        _interrupt(ctx, reason=InterruptReason.REVIEW, ui="diff")
+    review = _interrupt(ctx, reason=InterruptReason.REVIEW, ui="diff", expects={"type": "string"})
+    assert review.reason is InterruptReason.REVIEW and review.ui == "diff"
+    assert _interrupt(ctx).ui == "approve" and _interrupt(ctx).options == []
+    with pytest.raises(ValidationError):
+        _interrupt(ctx, ui="slider")
+
+
+def test_an_interrupt_names_who_answers_by_when_and_who_is_next(
+    ctx: AgentExecutionContext,
+) -> None:
+    deadline = datetime(2026, 10, 1, 9, tzinfo=UTC)
+    interrupt = _interrupt(
+        ctx,
+        ui="table",
+        assignee="role:procurement",
+        deadline=deadline,
+        escalate_to="user:cfo",
+        payload_ref=ArtifactRef(artifact_id="art_1", mime_type="text/csv"),
+    )
+    awaiting = interrupt.awaiting()
+    assert awaiting["assignee"] == "role:procurement" and awaiting["escalate_to"] == "user:cfo"
+    assert awaiting["payload_ref"]["artifact_id"] == "art_1"
+    assert Interrupt.model_validate(awaiting) == interrupt
+    with pytest.raises(ValidationError, match="escalate_to needs a deadline"):
+        _interrupt(ctx, escalate_to="user:cfo")
+    with pytest.raises(ValidationError, match="timezone"):
+        _interrupt(ctx, deadline=datetime(2026, 10, 1, 9))
+    # the pause carries the question; everything else is added where it becomes an interrupt
+    asked = Interrupt.from_paused(
+        AgentPaused("Which supplier?"),
+        context=ctx,
+        reason=InterruptReason.CHOICE,
+        ui="choice",
+        options=["Acme", "Globex"],
+        assignee="user:u1",
+    )
+    assert asked.options == ["Acme", "Globex"] and asked.assignee == "user:u1"
+    assert asked.run_id == ctx.agent_run_id
 
 
 def test_approve_reject_and_edit_of_a_tool_call_are_feedback(ctx: AgentExecutionContext) -> None:
@@ -645,6 +695,16 @@ def _samples(ctx: AgentExecutionContext) -> list[BaseModel]:
             evidence_refs=[EvidenceRef(source_id="s")],
         ),
         interrupt,
+        _interrupt(
+            ctx,
+            reason=InterruptReason.CHOICE,
+            ui="choice",
+            options=["a", "b"],
+            assignee="role:ops",
+            deadline=datetime(2026, 10, 1, tzinfo=UTC),
+            escalate_to="user:boss",
+            payload_ref=ArtifactRef(artifact_id="art_1"),
+        ),
         InterruptResolution(
             interrupt_id=interrupt.interrupt_id,
             run_id=interrupt.run_id,
