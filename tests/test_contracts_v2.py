@@ -78,12 +78,42 @@ def _interrupt(ctx: AgentExecutionContext, **fields: Any) -> Interrupt:
 
 
 def test_run_status_spells_like_agent_status_and_knows_what_is_final() -> None:
-    assert {s.value for s in AgentStatus} == {s.value for s in RunStatus} - {"RUNNING"}
+    assert {s.value for s in AgentStatus} == {s.value for s in RunStatus} - {"QUEUED", "RUNNING"}
     assert RunStatus.from_agent_status(AgentStatus.SUCCESS) is RunStatus.SUCCESS
     assert RunStatus.SUCCESS.final and RunStatus.CANCELLED.final
-    assert not RunStatus.RUNNING.final and not RunStatus.PAUSED.final
+    assert not any(s.final for s in (RunStatus.QUEUED, RunStatus.RUNNING, RunStatus.PAUSED))
     with pytest.raises(ValueError):
         RunStatus("STARTED")
+
+
+_LIVE = (RunStatus.QUEUED, RunStatus.RUNNING, RunStatus.PAUSED)
+_ENDINGS = tuple(s for s in RunStatus if s not in _LIVE)
+#: the whole state machine, spelled out once more by hand so a change to it is deliberate
+_MOVES = {
+    (RunStatus.QUEUED, RunStatus.RUNNING),
+    (RunStatus.QUEUED, RunStatus.CANCELLED),
+    (RunStatus.QUEUED, RunStatus.TIMEOUT),
+    (RunStatus.RUNNING, RunStatus.QUEUED),  # a worker's lease lapsed
+    (RunStatus.RUNNING, RunStatus.PAUSED),
+    *((RunStatus.RUNNING, ending) for ending in _ENDINGS),
+    (RunStatus.PAUSED, RunStatus.RUNNING),
+    (RunStatus.PAUSED, RunStatus.QUEUED),  # resumed by a worker
+    (RunStatus.PAUSED, RunStatus.CANCELLED),
+    (RunStatus.PAUSED, RunStatus.TIMEOUT),
+}
+
+
+@pytest.mark.parametrize("source", list(RunStatus))
+@pytest.mark.parametrize("target", list(RunStatus))
+def test_the_run_state_machine(source: RunStatus, target: RunStatus) -> None:
+    assert source.can_become(target) is ((source, target) in _MOVES)
+
+
+def test_queued_runs_reach_an_ending_only_by_running_or_being_abandoned() -> None:
+    assert not RunStatus.QUEUED.can_become(RunStatus.SUCCESS)
+    assert not RunStatus.QUEUED.can_become(RunStatus.PAUSED)
+    assert not RunStatus.PAUSED.can_become(RunStatus.SUCCESS)
+    assert all(not ending.can_become(status) for ending in _ENDINGS for status in RunStatus)
 
 
 def test_a_run_starts_from_the_request_and_is_recorded_as_running(
@@ -99,11 +129,21 @@ def test_a_run_starts_from_the_request_and_is_recorded_as_running(
     assert start.workspace_id == "fin" and start.metadata == {"channel": "chat"}
     record = RunRecord.from_start(start)
     assert record.status is RunStatus.RUNNING and not record.final and record.awaiting is None
+    queued = RunRecord.from_start(start, status=RunStatus.QUEUED)
+    assert queued.status is RunStatus.QUEUED and not queued.final
+    with pytest.raises(ValueError, match="starts QUEUED or RUNNING"):
+        RunRecord.from_start(start, status=RunStatus.SUCCESS)
     assert record.model_dump(include=set(RunStart.model_fields)) == start.model_dump()
     with pytest.raises(ValidationError):
         RunRecord(run_id="r", tenant_id="t", agent_id="a", status="STARTED")  # type: ignore[arg-type]
     with pytest.raises(ValidationError, match="timezone"):
         RunStart(run_id="r", tenant_id="t", agent_id="a", deadline=datetime(2026, 1, 1))
+
+
+def test_a_service_queuing_a_run_nobody_waits_on_mints_its_id() -> None:
+    first, second = (RunStart(tenant_id="t", agent_id="a") for _ in range(2))
+    assert first.run_id.startswith("run_") and first.run_id != second.run_id
+    assert RunStart.model_validate_json(first.model_dump_json()) == first
 
 
 def test_a_record_holds_its_own_invariants(ctx: AgentExecutionContext) -> None:
@@ -340,7 +380,8 @@ def test_a_finished_event_names_its_outcome_and_an_interrupt_carries_the_questio
 
 
 @pytest.mark.parametrize(
-    "status", [*(s for s in RunStatus if s is not RunStatus.RUNNING), *AgentStatus]
+    "status",
+    [*(s for s in RunStatus if s not in {RunStatus.QUEUED, RunStatus.RUNNING}), *AgentStatus],
 )
 def test_every_settled_status_has_an_outcome(status: RunStatus | AgentStatus) -> None:
     assert isinstance(RunOutcome.from_status(status), RunOutcome)
@@ -350,8 +391,9 @@ def test_outcomes_keep_a_policy_refusal_apart_and_refuse_the_unsettled() -> None
     assert RunOutcome.from_status(RunStatus.PAUSED) is RunOutcome.INTERRUPT
     assert RunOutcome.from_status(AgentStatus.REJECTED) is RunOutcome.REJECTED
     assert RunOutcome.from_status("TIMEOUT") is RunOutcome.TIMEOUT
-    with pytest.raises(ValueError, match="no outcome yet"):
-        RunOutcome.from_status("RUNNING")
+    for unsettled in ("QUEUED", "RUNNING"):
+        with pytest.raises(ValueError, match=f"a {unsettled} run has no outcome yet"):
+            RunOutcome.from_status(unsettled)
     with pytest.raises(ValueError):
         RunOutcome.from_status("success")
 
@@ -683,37 +725,39 @@ class _Runs:
     def __init__(self) -> None:
         self.records: dict[str, RunRecord] = {}
 
+    async def queued(self, start: RunStart) -> RunRecord:
+        return self.records.setdefault(
+            start.run_id, RunRecord.from_start(start, status=RunStatus.QUEUED)
+        )
+
     async def started(self, start: RunStart) -> RunRecord:
+        if (queued := self.records.get(start.run_id)) and queued.status is RunStatus.QUEUED:
+            return self._move(queued, RunStatus.RUNNING)
         return self.records.setdefault(start.run_id, RunRecord.from_start(start))
 
+    def _move(self, record: RunRecord, status: RunStatus, **fields: Any) -> RunRecord:
+        assert record.status.can_become(status), (record.status, status)
+        moved = record.model_copy(update={"status": status, **fields})
+        self.records[record.run_id] = moved
+        return moved
+
     async def paused(self, interrupt: Interrupt) -> RunRecord:
-        record = self.records[interrupt.run_id].model_copy(
-            update={"status": RunStatus.PAUSED, "awaiting": interrupt}
-        )
-        self.records[interrupt.run_id] = record
-        return record
+        return self._move(self.records[interrupt.run_id], RunStatus.PAUSED, awaiting=interrupt)
 
     async def resumed(self, resolution: InterruptResolution) -> RunRecord:
         current = self.records[resolution.run_id]
-        record = current.model_copy(
-            update={
-                "status": RunStatus.RUNNING,
-                "awaiting": None,
-                "last_resolution": resolution,
-                "attempt": current.attempt + 1,
-            }
+        return self._move(
+            current,
+            RunStatus.RUNNING,
+            awaiting=None,
+            last_resolution=resolution,
+            attempt=current.attempt + 1,
         )
-        self.records[resolution.run_id] = record
-        return record
 
     async def finished(
         self, run_id: str, status: RunStatus, *, output: Any = None, error: AgentError | None = None
     ) -> RunRecord:
-        record = self.records[run_id].model_copy(
-            update={"status": status, "output": output, "error": error}
-        )
-        self.records[run_id] = record
-        return record
+        return self._move(self.records[run_id], status, output=output, error=error)
 
     async def get(self, run_id: str) -> RunRecord | None:
         return self.records.get(run_id)
@@ -779,6 +823,8 @@ def test_the_ports_are_satisfied_method_for_method(implementation: type, port: t
 async def test_a_run_moves_through_a_store(ctx: AgentExecutionContext) -> None:
     runs, sink = _Runs(), _Sink()
     start = RunStart.from_request(AgentRequest.create(ctx, input="hi"))
+    assert (await runs.queued(start)).status is RunStatus.QUEUED
+    assert (await runs.queued(start)).status is RunStatus.QUEUED  # idempotent
     assert (await runs.started(start)).status is RunStatus.RUNNING
     interrupt = _interrupt(ctx)
     assert (await runs.paused(interrupt)).awaiting is interrupt

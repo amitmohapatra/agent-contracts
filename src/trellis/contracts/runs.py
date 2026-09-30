@@ -1,6 +1,6 @@
 """Runs, the events they emit, the interrupts that pause them, and the schedules that start
-them (PLATFORM-DESIGN §4, §7, §10). Types only: a run store, an event sink and a scheduler
-are ports in :mod:`trellis.contracts.ports`, implemented elsewhere.
+them (PLATFORM-DESIGN §4, §7, §10). Types only: a run store and an event sink are ports in
+:mod:`trellis.contracts.ports`; agent-runs keeps runs and schedules.
 
 A chat turn, a week-long cowork run and a 6 a.m. schedule differ in who drives and where
 state lives, not in their contract: the same :class:`RunEvent` stream leaves every surface,
@@ -29,9 +29,16 @@ from trellis.contracts.tool import ToolCall
 
 
 class RunStatus(StrEnum):
-    """Where a run is. ``RUNNING`` and ``PAUSED`` can still move on; the rest are how a run
-    ended and spell the same as :class:`AgentStatus`, so a run store and a response agree."""
+    """Where a run is. ``QUEUED``, ``RUNNING`` and ``PAUSED`` can still move on; the rest are
+    how a run ended and spell the same as :class:`AgentStatus`, so a run store and a response
+    agree.
 
+    The lifecycle is ``QUEUED -> RUNNING -> (PAUSED <-> RUNNING)* -> final``. A run started
+    in process skips the queue; a worker whose lease lapses hands its run back to the queue,
+    and a paused durable run is queued again for a worker to resume. :meth:`can_become` is
+    the one place a store checks a transition."""
+
+    QUEUED = "QUEUED"
     RUNNING = "RUNNING"
     PAUSED = "PAUSED"
     SUCCESS = "SUCCESS"
@@ -43,27 +50,54 @@ class RunStatus(StrEnum):
 
     @property
     def final(self) -> bool:
-        return self not in _LIVE
+        return self not in _TRANSITIONS
+
+    def can_become(self, status: RunStatus) -> bool:
+        """Whether a run in this status may move to ``status``. A final status moves nowhere."""
+        return status in _TRANSITIONS.get(self, frozenset())
 
     @classmethod
     def from_agent_status(cls, status: AgentStatus | str) -> RunStatus:
         return cls(str(status))
 
 
-_LIVE = frozenset({RunStatus.RUNNING, RunStatus.PAUSED})
+_ENDINGS = frozenset(
+    {
+        RunStatus.SUCCESS,
+        RunStatus.PARTIAL,
+        RunStatus.ERROR,
+        RunStatus.TIMEOUT,
+        RunStatus.CANCELLED,
+        RunStatus.REJECTED,
+    }
+)
+#: Every live status and where it may go. A queued run nobody claimed can still be
+#: cancelled or run out of time; a paused run is resumed (in process, or queued for a
+#: worker), cancelled, or times out waiting, but never ends without running again.
+_TRANSITIONS: dict[RunStatus, frozenset[RunStatus]] = {
+    RunStatus.QUEUED: frozenset({RunStatus.RUNNING, RunStatus.CANCELLED, RunStatus.TIMEOUT}),
+    RunStatus.RUNNING: _ENDINGS | {RunStatus.QUEUED, RunStatus.PAUSED},
+    RunStatus.PAUSED: frozenset(
+        {RunStatus.RUNNING, RunStatus.QUEUED, RunStatus.CANCELLED, RunStatus.TIMEOUT}
+    ),
+}
+#: where a run's record begins
+_ENTRIES = frozenset({RunStatus.QUEUED, RunStatus.RUNNING})
 #: endings that carry an error
 _FAILED = frozenset({RunStatus.ERROR, RunStatus.TIMEOUT, RunStatus.REJECTED})
 
 
 class RunStart(BaseModel):
-    """What starting a run records. ``idempotency_key`` makes a retried start return the
-    same run; ``on_behalf_of`` is the person a scheduled run acts for, fixed when the schedule
-    was made; ``webhook_url`` is captured now because the caller who wants to know is present
-    now and not when the run pauses at 3 a.m."""
+    """What starting a run records. ``run_id`` comes from the caller's context, or is minted
+    here when a service queues a run nobody is waiting on (a schedule firing);
+    ``idempotency_key`` makes a retried start return the same run; ``on_behalf_of`` is the
+    person a scheduled run acts for, fixed when the schedule was made; ``webhook_url`` is
+    captured now because the caller who wants to know is present now and not when the run
+    pauses at 3 a.m."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    run_id: str
+    run_id: str = Field(default_factory=lambda: new_id("run_"))
     tenant_id: str
     agent_id: str
     parent_run_id: str | None = None
@@ -276,8 +310,11 @@ class RunRecord(RunStart):
         return self.status.final
 
     @classmethod
-    def from_start(cls, start: RunStart) -> Self:
-        return cls.model_validate(start.model_dump())
+    def from_start(cls, start: RunStart, *, status: RunStatus = RunStatus.RUNNING) -> Self:
+        """The record of a run just started (``RUNNING``) or put on the queue (``QUEUED``)."""
+        if status not in _ENTRIES:
+            raise ValueError(f"a run starts QUEUED or RUNNING, not {status.value}")
+        return cls.model_validate({**start.model_dump(), "status": status})
 
 
 # --------------------------------------------------------------------------- events
@@ -327,8 +364,8 @@ class RunOutcome(StrEnum):
     def from_status(cls, status: RunStatus | AgentStatus | str) -> RunOutcome:
         """The outcome of a settled status; a run that has not ended has no outcome."""
         settled = RunStatus.from_agent_status(status)
-        if settled == RunStatus.RUNNING:
-            raise ValueError("a running run has no outcome yet")
+        if settled not in _OUTCOMES:
+            raise ValueError(f"a {settled.value} run has no outcome yet")
         return _OUTCOMES[settled]
 
 
