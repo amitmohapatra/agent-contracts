@@ -294,6 +294,7 @@ def test_approve_reject_and_edit_of_a_tool_call_are_feedback(ctx: AgentExecution
     assert approved.metadata == {
         "interrupt_id": interrupt.interrupt_id,
         "tool": "billing.refund",
+        "args": {"amount": 240},
         "target": "tool_call",
     }
     edited = resolve(InterruptDecision.EDIT, payload={"amount": 200})

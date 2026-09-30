@@ -273,9 +273,11 @@ class InterruptResolution(BaseModel):
         return self.interrupt_id == interrupt.interrupt_id and self.run_id == interrupt.run_id
 
     def to_feedback(self, interrupt: Interrupt, context: AgentExecutionContext) -> Feedback | None:
-        """The feedback record an approve, reject or edit of a tool call is; an answer or a
-        cancellation judges nothing and yields none. The resolution, the interrupt and the
-        context must name the same run: feedback is attributed to the run that paused."""
+        """The feedback record an approve, reject or edit of a tool call is (``metadata`` names
+        the tool and the arguments it was asked about, which approval patterns are learned
+        from); an answer or a cancellation judges nothing and yields none. The resolution, the
+        interrupt and the context must name the same run: feedback is attributed to the run
+        that paused."""
         if not self.resolves(interrupt):
             raise ValueError("the resolution answers a different interrupt or run")
         if context.agent_run_id != interrupt.run_id or context.tenant_id != interrupt.tenant_id:
@@ -295,6 +297,7 @@ class InterruptResolution(BaseModel):
             metadata={
                 "interrupt_id": interrupt.interrupt_id,
                 "tool": call.tool,
+                "args": call.args,
                 "target": "tool_call" if call.idempotency_key else "interrupt",
             },
         )
