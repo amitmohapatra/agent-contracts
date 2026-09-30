@@ -1,6 +1,6 @@
 # ADR 0001: Contracts v2, the seams every trellis package builds on
 
-**Status:** accepted · **Date:** 2026-09-28
+**Status:** accepted, amended by [ADR 0002](0002-contracts-v3.md) · **Date:** 2026-09-28
 
 ## Context
 `trellis-contracts` 0.2 carried the V1 seams: `AgentRequest`/`AgentResponse`, the execution
@@ -8,8 +8,7 @@ context, tool and model types, and ports for memory, telemetry, policy and a reg
 platform design (trellis-harness `docs/PLATFORM-DESIGN-2026-09-28.md`, §4, §7, §9–11, §14)
 needs more: a run event stream every surface speaks, one framework-neutral interrupt with
 its resolution, a feedback record the Memory Service stores, an A2A Agent Card mapped from
-the descriptor, and ports for run stores, schedulers, event sinks, feedback stores, judges
-and agent directories. Every later phase codes against these, so they land first, as types
+the descriptor, and ports for run stores, event sinks, judges and agent directories. Every later phase codes against these, so they land first, as types
 with no runtime, transport, I/O or new dependency.
 
 ## Decision
@@ -46,15 +45,14 @@ with no runtime, transport, I/O or new dependency.
   `LLM` second), model and cost; `as_feedback` turns it into a judge feedback record on the
   answer.
 - **Agent Card** (`a2a.py`). `AgentCard.from_descriptor` maps the descriptor to the A2A
-  0.3.0 card (skills, capabilities, security schemes, interfaces, signatures); `to_a2a`
+  1.0 card (skills, capabilities, security schemes, interfaces, signatures); `to_a2a`
   renders the camelCase JSON the protocol spells, without the platform's own metadata;
   `from_a2a` reads a foreign card as data (unknown keys dropped, every URL http(s)).
   `a2a-sdk` is not imported here.
 - **Ports** (`ports.py`). `EventSink.publish`, `RunStore` (started/paused/resumed/finished/
-  get/list_paused), `Scheduler` (create/get/list_for_tenant/set_enabled/delete),
-  `FeedbackStore` (submit/list_for; the system of record, where
-  `EvaluationProvider.submit_feedback` is the tracing backend's copy), `Judge.judge`,
-  `AgentDirectory` (get/find/publish); all `runtime_checkable`. A store verifies a record's
+  get/list_paused), `Judge.judge`, `AgentDirectory` (get/find/publish); all
+  `runtime_checkable`. (The scheduler and feedback-store ports this ADR first added are
+  removed by ADR 0002.) A store verifies a record's
   identity fields against the authenticated caller; a record only claims who it is from.
 - **Tool status** is the enum `ToolStatus` (ok, error, timeout, rejected, cancelled); a
   `StrEnum`, so `outcome.status == "ok"` still holds, and assignments are validated.

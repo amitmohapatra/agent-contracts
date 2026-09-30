@@ -1,4 +1,4 @@
-"""Contracts v2 (ADR 0001): runs, events, interrupts, feedback, judging, agent cards, ports."""
+"""Contracts v2 and v3 (ADRs 0001, 0002): runs, events, interrupts, feedback, cards, ports."""
 
 from __future__ import annotations
 
@@ -967,7 +967,7 @@ def test_everything_new_is_exported_and_the_version_is_the_installed_one() -> No
         "now",
     ):
         assert name in contracts.__all__ and hasattr(contracts, name), name
-    assert contracts.__version__ == md.version("trellis-contracts")
+    assert contracts.__version__ == md.version("trellis-contracts") == "0.4.0"
 
 
 @pytest.mark.parametrize(
@@ -990,3 +990,16 @@ def test_retired_names_are_gone(name: str) -> None:
 
 def test_feedback_is_not_an_evaluation_provider_concern() -> None:
     assert not hasattr(contracts.EvaluationProvider, "submit_feedback")
+
+
+def test_an_awaiting_stored_by_contracts_v2_still_reads_back(ctx: AgentExecutionContext) -> None:
+    stored = {
+        "interrupt_id": "int_1",
+        "tenant_id": "acme",
+        "run_id": ctx.agent_run_id,
+        "reason": "QUESTION",
+        "question": "which region?",
+        "created_at": "2026-09-28T08:00:00Z",
+    }
+    interrupt = Interrupt.model_validate(stored)
+    assert interrupt.ui == "approve" and interrupt.options == [] and interrupt.assignee is None

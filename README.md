@@ -55,11 +55,17 @@ classDiagram
     +memory_observations, recommended_actions
     +succeeded
   }
-  class RunStart
+  class RunStart {
+    +run_id, tenant_id, agent_id, workspace_id
+    +on_behalf_of, input, deadline
+    +idempotency_key, webhook_url
+  }
   class RunRecord {
     +status: RunStatus
     +awaiting: Interrupt
     +last_resolution: InterruptResolution
+    +attempt
+    +from_start(start, status) RunRecord
   }
   class RunEvent {
     +type: RunEventType
@@ -69,7 +75,9 @@ classDiagram
   class Interrupt {
     +interrupt_id, run_id, question
     +reason: InterruptReason
-    +expects, payload
+    +ui, expects, options
+    +payload, payload_ref, tool_call
+    +assignee, deadline, escalate_to
     +awaiting() dict
   }
   class InterruptResolution {
@@ -96,8 +104,16 @@ classDiagram
     +protocol_version
     +capabilities, skills, interfaces
   }
-  class ScheduleSpec
-  class Schedule
+  class ScheduleSpec {
+    +tenant_id, agent_id, name
+    +cadence, timezone, on_behalf_of
+    +input, workspace_id, enabled
+  }
+  class Schedule {
+    +schedule_id, created_by
+    +next_fire_at, last_fired_at, last_run_id
+    +consecutive_failures, last_error, retry_after
+  }
 
   AgentRequest --> AgentExecutionContext
   RunStart --> AgentExecutionContext : from_request
@@ -171,6 +187,7 @@ classDiagram
   }
   class RunStore {
     <<Protocol>>
+    queued()
     started()
     paused()
     resumed()
@@ -200,6 +217,36 @@ Each is a `Protocol`, so an implementation conforms by shape and nothing imports
 here. `trellis-harness`'s `tests/contract/test_ports.py` asserts each of its adapters against the
 protocol it claims.
 
+## A run's lifecycle
+
+`RunStatus.can_become(target)` is the one transition check; a run store refuses anything else.
+
+```mermaid
+stateDiagram-v2
+  [*] --> QUEUED : RunStore.queued
+  [*] --> RUNNING : RunStore.started
+  QUEUED --> RUNNING : a worker claims it
+  RUNNING --> QUEUED : the worker's lease lapsed
+  RUNNING --> PAUSED : Interrupt
+  PAUSED --> RUNNING : resumed in process
+  PAUSED --> QUEUED : resumed for a worker
+  QUEUED --> CANCELLED
+  QUEUED --> TIMEOUT
+  PAUSED --> CANCELLED
+  PAUSED --> TIMEOUT : past the deadline, nobody to escalate to
+  RUNNING --> SUCCESS
+  RUNNING --> PARTIAL
+  RUNNING --> ERROR
+  RUNNING --> REJECTED
+  RUNNING --> CANCELLED
+  RUNNING --> TIMEOUT
+```
+
+A paused run waits on exactly one `Interrupt`: a `QUESTION`, an `APPROVAL` (carries the tool
+call), a `REVIEW` (carries in `expects` what a correction looks like), a `CHOICE` (carries its
+`options`) or an `AUTH`. `assignee` is who answers (`user:u1`, `role:procurement`); past
+`deadline` the run goes to `escalate_to`, or times out when nobody is named.
+
 ## Versions, and what goes with what
 
 The packages move together; a combination is "supported" when a test run exercised it, not when it
@@ -207,9 +254,9 @@ merely installs.
 
 | Package | Version | Notes |
 |---|---|---|
-| `trellis-contracts` | **0.3.0** | this package: contracts v2 — `RunEvent`, `Interrupt`, `Feedback`, `AgentCard`, and the ports `EventSink`, `RunStore`, `Scheduler`, `FeedbackStore`, `Judge`, `AgentDirectory` |
-| `trellis-harness` | **0.3.0** | declares `trellis-contracts>=0.2`; 0.3.0 is the pair its `compatibility-matrix.json` records |
-| `trellis-memory` (Memory Service SDK) | **0.2.1** | what the harness's memory port is written against |
+| `trellis-contracts` | **0.4.0** | this package: contracts v3 (ADR 0002) — queued runs, richer interrupts, the schedule fields agent-runs keeps, and only the ports something implements |
+| `trellis-harness` | **0.4.0** | moves to contracts 0.4.0 in the same change set |
+| `trellis-memory` (Memory Service SDK) | **0.3.0** | what the harness's memory port is written against |
 | `pydantic` | `>=2.13,<3` | the only runtime dependency |
 | Python | `>=3.12` | `StrEnum`, PEP 695 generics |
 
@@ -222,11 +269,9 @@ Two wire conventions worth knowing when reading the records:
   does not break an older reader.
 * **Every timestamp is timezone-aware.**
 
-One version caveat, stated rather than hidden: `A2A_PROTOCOL_VERSION` in `contracts/a2a.py` is
-`"0.3.0"` and is what a card carries when nobody sets one, while the A2A server in
-`trellis-harness-a2a` overrides it with the installed `a2a-sdk`'s `PROTOCOL_VERSION_CURRENT`
-(`"1.0"` at a2a-sdk 1.1.5). A card served over the wire therefore says `1.0`; a card built here and
-never served says `0.3.0`. The constant is stale, not the server.
+`A2A_PROTOCOL_VERSION` is `"1.0"`, the protocol `a2a-sdk` 1.x speaks; `trellis-harness`'s
+compatibility tests pin it against the SDK's `PROTOCOL_VERSION_CURRENT`, so a card built here and
+a card served over the wire say the same.
 
 ## Install
 
@@ -247,37 +292,43 @@ than rejected at the far end of an HTTP call.
 uv run pytest
 ```
 
-## Contracts v2
+## Contracts v3
 
 Beyond the request/response pair, the package carries the seams the rest of the platform
-builds on (ADR 0001 in `docs/adr`): `RunEvent` (the AG-UI event vocabulary plus
+builds on (ADRs 0001 and 0002 in `docs/adr`): `RunEvent` (the AG-UI event vocabulary plus
 `CONTEXT_LOADED` and `INTERRUPT`), `Interrupt` and `InterruptResolution` (one pause
 mechanism for every framework; approve, reject or edit of a tool call is also `Feedback`),
 `Feedback` (human, judge and interrupt judgements on runs, answers, memories, tool calls,
-briefs and procedures), `JudgeVerdict`, `AgentCard` (the A2A 0.3.0 card mapped from
-`AgentDescriptor`), `RunRecord`, `RunStart`, `ScheduleSpec` and `Schedule`, and the ports
-`EventSink`, `RunStore`, `Scheduler`, `FeedbackStore`, `Judge` and `AgentDirectory`.
+briefs and procedures), `JudgeVerdict`, `AgentCard` (the A2A 1.0 card mapped from
+`AgentDescriptor`), `RunStart`, `RunRecord`, `ScheduleSpec` and `Schedule` (what agent-runs
+stores), and the ports `EventSink`, `RunStore`, `Judge` and `AgentDirectory`.
 
 ```python
 from trellis.contracts import (
-    AgentExecutionContext, AgentPaused, Interrupt, InterruptDecision, InterruptResolution,
-    RunEvent, RunOutcome,
+    AgentExecutionContext,
+    AgentPaused,
+    Interrupt,
+    InterruptDecision,
+    InterruptReason,
+    InterruptResolution,
+    RunEvent,
+    RunOutcome,
 )
 
-ctx = AgentExecutionContext.create(tenant_id="acme", user_id="u1", agent_id="refund-agent")
+ctx = AgentExecutionContext.create(tenant_id="acme", user_id="u1", agent_id="buyer")
 interrupt = Interrupt.from_paused(
-    AgentPaused("Approve the refund?", expects={"type": "boolean"}), context=ctx
+    AgentPaused("Which supplier?"),
+    context=ctx,
+    reason=InterruptReason.CHOICE,
+    ui="choice",
+    options=["Acme", "Globex"],
+    assignee="role:procurement",
 )
 event = RunEvent.finished(ctx, RunOutcome.INTERRUPT, sequence=7, interrupt=interrupt)
 answer = InterruptResolution(
     interrupt_id=interrupt.interrupt_id,
     run_id=interrupt.run_id,
     decision=InterruptDecision.ANSWER,
-    answer=True,
+    answer="Globex",
 )
 ```
-
-Records the platform writes and streams (`RunStart`, `RunEvent`, `Interrupt`,
-`InterruptResolution`, `Feedback`, `JudgeVerdict`, `ScheduleSpec`) refuse unknown fields;
-records read back from a store (`RunRecord`, `Schedule`) and cards read from another agent
-(`AgentCard`) ignore them. Every timestamp is timezone-aware.
