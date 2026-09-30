@@ -184,14 +184,17 @@ class EventSink(Protocol):
 class RunStore(Protocol):
     """Where a run outlives the process: agent-runs, or an in-memory store in tests. A run
     is started (or queued for a worker) idempotently by its id, paused with the interrupt it
-    waits on, resumed with the resolution it got, and finished once. Every move is one
+    waits on and the executor's opaque ``checkpoint``, resumed with the resolution it got,
+    and finished once (which clears the checkpoint). Every move is one
     :meth:`RunStatus.can_become` allows."""
 
     async def queued(self, start: RunStart) -> RunRecord: ...
 
     async def started(self, start: RunStart) -> RunRecord: ...
 
-    async def paused(self, interrupt: Interrupt) -> RunRecord: ...
+    async def paused(
+        self, interrupt: Interrupt, *, checkpoint: dict[str, Any] | None = None
+    ) -> RunRecord: ...
 
     async def resumed(self, resolution: InterruptResolution) -> RunRecord: ...
 

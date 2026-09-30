@@ -64,6 +64,7 @@ classDiagram
     +status: RunStatus
     +awaiting: Interrupt
     +last_resolution: InterruptResolution
+    +checkpoint: opaque executor state
     +attempt
     +from_start(start, status) RunRecord
   }
@@ -246,6 +247,10 @@ A paused run waits on exactly one `Interrupt`: a `QUESTION`, an `APPROVAL` (carr
 call), a `REVIEW` (carries in `expects` what a correction looks like), a `CHOICE` (carries its
 `options`) or an `AUTH`. `assignee` is who answers (`user:u1`, `role:procurement`); past
 `deadline` the run goes to `escalate_to`, or times out when nobody is named.
+
+The executor pauses with an opaque `checkpoint` (`RunStore.paused(interrupt, checkpoint=)`):
+its resume journal and the framework's own resume state. The record returns it on every read
+and claim, so another worker resumes without repeating side effects; finishing clears it.
 
 ## Versions, and what goes with what
 

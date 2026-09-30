@@ -164,6 +164,15 @@ def test_a_record_holds_its_own_invariants(ctx: AgentExecutionContext) -> None:
         RunRecord(**base, status=RunStatus.SUCCESS, error=error)
     failed = RunRecord(**base, status=RunStatus.ERROR, error=error)
     assert failed.final and failed.error is error
+    journal = {"asks": {"q1": "yes"}, "tools": {"sha256:ab": {"ok": True}}}
+    paused = RunRecord(
+        **base, status=RunStatus.PAUSED, awaiting=_interrupt(ctx), checkpoint=journal
+    )
+    assert RunRecord.model_validate_json(paused.model_dump_json()).checkpoint == journal
+    assert RunRecord(**base, status=RunStatus.QUEUED, checkpoint=journal).checkpoint == journal
+    assert RunRecord(**base).checkpoint is None
+    with pytest.raises(ValidationError, match="finished run carries no checkpoint"):
+        RunRecord(**base, status=RunStatus.SUCCESS, checkpoint=journal)
     # read back from a store: an unknown column is ignored, not refused
     assert RunRecord.model_validate({**base, "legacy_column": 1}).status is RunStatus.RUNNING
 
@@ -827,8 +836,15 @@ class _Runs:
         self.records[record.run_id] = moved
         return moved
 
-    async def paused(self, interrupt: Interrupt) -> RunRecord:
-        return self._move(self.records[interrupt.run_id], RunStatus.PAUSED, awaiting=interrupt)
+    async def paused(
+        self, interrupt: Interrupt, *, checkpoint: dict[str, Any] | None = None
+    ) -> RunRecord:
+        return self._move(
+            self.records[interrupt.run_id],
+            RunStatus.PAUSED,
+            awaiting=interrupt,
+            checkpoint=checkpoint,
+        )
 
     async def resumed(self, resolution: InterruptResolution) -> RunRecord:
         current = self.records[resolution.run_id]
@@ -843,7 +859,7 @@ class _Runs:
     async def finished(
         self, run_id: str, status: RunStatus, *, output: Any = None, error: AgentError | None = None
     ) -> RunRecord:
-        return self._move(self.records[run_id], status, output=output, error=error)
+        return self._move(self.records[run_id], status, output=output, error=error, checkpoint=None)
 
     async def get(self, run_id: str) -> RunRecord | None:
         return self.records.get(run_id)
@@ -913,7 +929,8 @@ async def test_a_run_moves_through_a_store(ctx: AgentExecutionContext) -> None:
     assert (await runs.queued(start)).status is RunStatus.QUEUED  # idempotent
     assert (await runs.started(start)).status is RunStatus.RUNNING
     interrupt = _interrupt(ctx)
-    assert (await runs.paused(interrupt)).awaiting is interrupt
+    paused = await runs.paused(interrupt, checkpoint={"asks": {}})
+    assert paused.awaiting is interrupt and paused.checkpoint == {"asks": {}}
     assert [r.run_id for r in await runs.list_paused("acme")] == [start.run_id]
     await sink.publish(RunEvent.interrupt(ctx, interrupt, 1))
     assert sink.events[0].type is RunEventType.INTERRUPT
@@ -928,9 +945,10 @@ async def test_a_run_moves_through_a_store(ctx: AgentExecutionContext) -> None:
         resumed.status is RunStatus.RUNNING
         and resumed.attempt == 2
         and resumed.last_resolution is resolution
+        and resumed.checkpoint == {"asks": {}}
     )
     done = await runs.finished(start.run_id, RunStatus.SUCCESS, output={"ok": True})
-    assert done.final and (await runs.list_paused("acme")) == []
+    assert done.final and done.checkpoint is None and (await runs.list_paused("acme")) == []
 
 
 def test_everything_new_is_exported_and_the_version_is_the_installed_one() -> None:

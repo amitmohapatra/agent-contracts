@@ -42,6 +42,12 @@ new dependency.
   writes them through the contract, and `RunRecord` ignores them when read back. The inbox
   columns (`assignee`, the interrupt's `deadline`) are denormalised by the service from
   `awaiting`, not duplicated on the record.
+- **Checkpoints.** `RunRecord.checkpoint` is the executor's opaque state (a resume journal:
+  answered asks, completed tool outputs keyed by content, a framework's own resume state such
+  as a LangGraph interrupt id or a serialized OpenAI `RunState`). It is written with the pause
+  (`RunStore.paused(interrupt, checkpoint=)`), returned on every read and claim so a different
+  worker resumes without repeating side effects, and cleared when the run finishes; a final
+  record carries none. The service bounds its size. The contract never looks inside it.
 - **Interrupts.** `InterruptReason` gains `REVIEW` and `CHOICE` (`QUESTION`, `APPROVAL`,
   `REVIEW`, `CHOICE`, `AUTH`). `Interrupt` gains `ui` (`approve` | `form` | `table` | `diff`
   | `choice`, default `approve`), `options` (for a `CHOICE`), `payload_ref` (an `ArtifactRef`

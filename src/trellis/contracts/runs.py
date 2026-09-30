@@ -303,7 +303,11 @@ class InterruptResolution(BaseModel):
 class RunRecord(RunStart):
     """A run as a run store keeps it: the start plus where it is. ``awaiting`` is the
     interrupt a paused run waits on and nothing else; ``error`` belongs to a failed ending.
-    Read back from a store, so unknown columns are ignored rather than refused."""
+    ``checkpoint`` is opaque executor state (the resume journal: answered asks, completed tool
+    outputs, a framework's own resume state) written when the run pauses, returned on read and
+    claim so another worker resumes without repeating side effects, and cleared when the run
+    finishes; the service bounds its size. Read back from a store, so unknown columns are
+    ignored rather than refused."""
 
     model_config = ConfigDict(frozen=True, extra="ignore")
 
@@ -312,6 +316,7 @@ class RunRecord(RunStart):
     error: AgentError | None = None
     awaiting: Interrupt | None = None
     last_resolution: InterruptResolution | None = None
+    checkpoint: dict[str, Any] | None = None
     attempt: int = Field(default=1, ge=1)
     created_at: AwareDatetime = Field(default_factory=now)
     updated_at: AwareDatetime = Field(default_factory=now)
@@ -327,6 +332,8 @@ class RunRecord(RunStart):
             raise ValueError("the interrupt belongs to another run")
         if self.error is not None and self.status not in _FAILED:
             raise ValueError(f"a {self.status.value} run carries no error")
+        if self.checkpoint is not None and self.final:
+            raise ValueError("a finished run carries no checkpoint")
         return self
 
     @property
