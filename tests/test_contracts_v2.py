@@ -296,7 +296,9 @@ def test_approve_reject_and_edit_of_a_tool_call_are_feedback(ctx: AgentExecution
         "tool": "billing.refund",
         "args": {"amount": 240},
         "target": "tool_call",
+        "decision_seconds": approved.metadata["decision_seconds"],
     }
+    assert approved.metadata["decision_seconds"] >= 0
     edited = resolve(InterruptDecision.EDIT, payload={"amount": 200})
     assert (
         edited is not None
@@ -1040,3 +1042,47 @@ def test_an_awaiting_stored_by_contracts_v2_still_reads_back(ctx: AgentExecution
     }
     interrupt = Interrupt.model_validate(stored)
     assert interrupt.ui == "approve" and interrupt.options == [] and interrupt.assignee is None
+
+
+def test_feedback_for_one_decision_has_one_id_however_often_it_is_built(
+    ctx: AgentExecutionContext,
+) -> None:
+    """A retried or duplicated send must be stored and counted once."""
+    call = ToolCall(tool="billing.refund", args={"amount": 240}, idempotency_key="call-1")
+    interrupt = _interrupt(ctx, reason=InterruptReason.APPROVAL, tool_call=call)
+    other = _interrupt(ctx, reason=InterruptReason.APPROVAL, tool_call=call)
+
+    def resolution(of: Interrupt, decision: InterruptDecision) -> InterruptResolution:
+        return InterruptResolution(
+            interrupt_id=of.interrupt_id, run_id=of.run_id, decision=decision
+        )
+
+    first = resolution(interrupt, InterruptDecision.APPROVE).to_feedback(interrupt, ctx)
+    again = resolution(interrupt, InterruptDecision.APPROVE).to_feedback(interrupt, ctx)
+    assert first is not None and again is not None
+    assert first.feedback_id == again.feedback_id
+    assert first.feedback_id == resolution(interrupt, InterruptDecision.REJECT).feedback_id
+    assert first.feedback_id.startswith("fb_")
+    elsewhere = resolution(other, InterruptDecision.APPROVE).to_feedback(other, ctx)
+    assert elsewhere is not None and elsewhere.feedback_id != first.feedback_id
+
+
+def test_feedback_records_how_long_the_person_took(ctx: AgentExecutionContext) -> None:
+    asked = datetime(2026, 10, 1, 9, 0, tzinfo=UTC)
+    call = ToolCall(tool="files.delete", args={"path": "/tmp/x"})
+    interrupt = _interrupt(ctx, reason=InterruptReason.APPROVAL, tool_call=call, created_at=asked)
+
+    def took(resolved_at: datetime) -> float:
+        fb = InterruptResolution(
+            interrupt_id=interrupt.interrupt_id,
+            run_id=interrupt.run_id,
+            decision=InterruptDecision.APPROVE,
+            resolved_at=resolved_at,
+        ).to_feedback(interrupt, ctx)
+        assert fb is not None
+        return float(fb.metadata["decision_seconds"])
+
+    assert took(asked + timedelta(seconds=2.5)) == 2.5
+    assert took(asked + timedelta(minutes=3)) == 180.0
+    # a reviewer's clock behind the asker's never yields a negative time
+    assert took(asked - timedelta(seconds=5)) == 0.0

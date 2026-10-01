@@ -22,7 +22,7 @@ from trellis.contracts.artifacts import ArtifactRef
 from trellis.contracts.context import AgentExecutionContext
 from trellis.contracts.errors import AgentError, AgentPaused
 from trellis.contracts.feedback import Feedback, FeedbackSource, FeedbackTargetKind, FeedbackVerdict
-from trellis.contracts.ids import new_id, now
+from trellis.contracts.ids import new_id, now, stable_id
 from trellis.contracts.messages import AgentRequest, AgentStatus
 from trellis.contracts.tool import ToolCall
 
@@ -269,6 +269,13 @@ class InterruptResolution(BaseModel):
     def resolves(self, interrupt: Interrupt) -> bool:
         return self.interrupt_id == interrupt.interrupt_id and self.run_id == interrupt.run_id
 
+    @property
+    def feedback_id(self) -> str:
+        """The one id the feedback for this decision carries, however often it is sent: an
+        interrupt is answered once, so a retried or duplicated send is stored once and
+        counted once in the approval patterns learned from it."""
+        return stable_id(self.run_id, self.interrupt_id, prefix="fb_")
+
     def to_feedback(self, interrupt: Interrupt, context: AgentExecutionContext) -> Feedback | None:
         """The feedback record an approve, reject or edit of a tool call is (``metadata`` names
         the tool and the arguments it was asked about, which approval patterns are learned
@@ -283,8 +290,12 @@ class InterruptResolution(BaseModel):
         if verdict is None or interrupt.tool_call is None:
             return None
         call = interrupt.tool_call
+        # How long the person took: a two-second approval of a large diff is a weak label,
+        # and a reader of the patterns can weigh it so. Never negative on a skewed clock.
+        took = max(0.0, (self.resolved_at - interrupt.created_at).total_seconds())
         return Feedback.for_context(
             context,
+            feedback_id=self.feedback_id,
             target_kind=FeedbackTargetKind.TOOL_CALL,
             target_id=call.idempotency_key or interrupt.interrupt_id,
             verdict=verdict,
@@ -296,6 +307,7 @@ class InterruptResolution(BaseModel):
                 "tool": call.tool,
                 "args": call.args,
                 "target": "tool_call" if call.idempotency_key else "interrupt",
+                "decision_seconds": round(took, 3),
             },
         )
 
