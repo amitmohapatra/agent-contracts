@@ -20,8 +20,8 @@ from trellis.contracts.descriptors import AgentDescriptor, SkillDescriptor
 
 #: The protocol version a served card declares. It tracks what the transport actually
 #: speaks: ``a2a-sdk`` 1.x is protocol 1.0, and a card that claimed 0.3.0 while the wire
-#: answered 1.0 would tell a caller to negotiate the wrong dialect. The A2A surface pins
-#: this against the SDK's own ``PROTOCOL_VERSION_CURRENT``.
+#: answered 1.0 would tell a caller to negotiate the wrong dialect. The harness's A2A surface
+#: serves the SDK's own ``PROTOCOL_VERSION_CURRENT``, which must equal this.
 A2A_PROTOCOL_VERSION = "1.0"
 _TEXT_PLAIN = "text/plain"
 _A2A = ConfigDict(frozen=True, extra="ignore", alias_generator=to_camel, validate_by_name=True)
