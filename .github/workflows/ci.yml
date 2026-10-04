@@ -1,0 +1,23 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      # --locked: a uv.lock out of step with pyproject.toml fails here, not on a laptop later
+      - run: uv sync --all-extras --locked
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      # No pyright step: the repo configures no type checker, and the tests deliberately pass
+      # wrong types to prove the models refuse them.
+      - run: uv run pytest -q
