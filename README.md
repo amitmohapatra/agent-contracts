@@ -60,7 +60,7 @@ assert response.succeeded
 # The Memory Service's Scope keywords, made coherent: a turn with no session gets one.
 assert ctx.scope_fields()["session_id"] == "chat-42-session"
 
-# What a run store keeps, and the one transition check.
+# What agent-runs keeps, and the one transition check.
 record = RunRecord.from_start(RunStart.from_request(request))
 assert record.status is RunStatus.RUNNING and record.status.can_become(RunStatus.PAUSED)
 ```
@@ -117,7 +117,7 @@ assert event.data["interrupt"]["options"] == ["Acme", "Globex"]
 | record how a person answered | `InterruptResolution`; for an approve, reject or edit of a tool call, `resolution.to_feedback(interrupt, ctx)` gives the matching `Feedback` |
 | record a judgement on a run, answer, memory, tool call, brief or procedure | `Feedback.for_context(ctx, target_kind=..., target_id=..., verdict=...)` |
 | score a finished run automatically | a `Judge` returns a `JudgeVerdict`; `verdict.as_feedback(event)` turns it into judge `Feedback` on the `AgentEvalEvent`'s answer |
-| keep a run beyond the process, or queue it for a worker | `RunStart.from_request(request)`, then `RunStore.started` or `RunStore.queued`, which return a `RunRecord` |
+| keep a run beyond the process, or queue it for a worker | `RunStart.from_request(request)`, then `RunsClient.start(start)` or `RunsClient.start(start, queue=True)` from `trellis.runs` (the agent-runs SDK), which return a `RunRecord` |
 | check whether a status change is allowed | `RunStatus.can_become(target)` |
 | stream progress to a UI | the `RunEvent` constructors (`started`, `text`, `tool`, `interrupt`, `custom`, `finished`), sent with `EventSink.publish` |
 | run an agent on a schedule | `ScheduleSpec` is what a caller writes; `Schedule` is what agent-runs returns |
@@ -270,39 +270,43 @@ implementation conforms by shape and imports no base class from here.
 | `EvaluationProvider` | `score`, `submit_dataset_item` | write scores and dataset items to the tracing backend (feedback goes to the Memory Service instead) |
 | `AgentPolicyProvider` | `authorize_execution`, `authorize_tool`, `authorize_model` | allow or refuse a run, a tool call or a model call |
 | `EventSink` | `publish` | deliver a run's `RunEvent` stream: SSE, a webhook outbox, a test collector |
-| `RunStore` | `queued`, `started`, `paused`, `resumed`, `finished`, `get`, `list_paused` | keep a run beyond the process, with every move one that `RunStatus.can_become` allows |
 | `Judge` | `judge` | score a finished run off the critical path (`None` means it abstained) |
 | `AgentDirectory` | `get`, `find`, `publish` | find agents another agent may call, as `AgentCard`s |
 | `AgentInterceptor` | `name`, `order`, `before`, `after`, `on_error` | add an ordered stage to the execution pipeline |
 
 `ports.Runtime` (the object an interceptor is handed) is deliberately `Any`, because the
-concrete runtime belongs to whatever executes the agent. Which sibling repo implements which
+concrete runtime belongs to whatever executes the agent.
+
+Runs have no port. Their client is `trellis.runs.RunsClient` (pip `trellis-runs`, shipped
+from agent-runs), whose verbs are agent-runs' operation ids: `start`, `claim`, `heartbeat`,
+`pause`, `resume`, `finish`, `get`, `list`. Its requests and replies are the types here
+(`RunStart`, `Interrupt`, `InterruptResolution`, `RunRecord`). Which sibling repo implements which
 port today is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#the-ports).
 
 ## A run's lifecycle
 
-`RunStatus.can_become(target)` is the one transition check, and a run store refuses anything
-else. `RunRecord.from_start` creates a record `QUEUED` or `RUNNING`, and nothing else.
+`RunStatus.can_become(target)` is the one transition check, and agent-runs refuses anything
+else. The labels below are `RunsClient` verbs. `RunRecord.from_start` creates a record `QUEUED` or `RUNNING`, and nothing else.
 
 ```mermaid
 stateDiagram-v2
-  [*] --> QUEUED : RunStore.queued
-  [*] --> RUNNING : RunStore.started
-  QUEUED --> RUNNING : a worker claims it
+  [*] --> QUEUED : start(queue=True)
+  [*] --> RUNNING : start
+  QUEUED --> RUNNING : claim, by a worker
   RUNNING --> QUEUED : the worker's lease lapsed
-  RUNNING --> PAUSED : Interrupt
-  PAUSED --> RUNNING : resumed in process
-  PAUSED --> QUEUED : resumed for a worker
+  RUNNING --> PAUSED : pause(interrupt)
+  PAUSED --> RUNNING : resume, in process
+  PAUSED --> QUEUED : resume, for a worker
   QUEUED --> CANCELLED
   QUEUED --> TIMEOUT
   PAUSED --> CANCELLED
   PAUSED --> TIMEOUT : past the deadline, nobody to escalate to
-  RUNNING --> SUCCESS
-  RUNNING --> PARTIAL
-  RUNNING --> ERROR
-  RUNNING --> REJECTED
-  RUNNING --> CANCELLED
-  RUNNING --> TIMEOUT
+  RUNNING --> SUCCESS : finish
+  RUNNING --> PARTIAL : finish
+  RUNNING --> ERROR : finish
+  RUNNING --> REJECTED : finish
+  RUNNING --> CANCELLED : finish
+  RUNNING --> TIMEOUT : finish
 ```
 
 A paused run waits on exactly one `Interrupt`: a `QUESTION`, an `APPROVAL` (carries the tool
@@ -310,7 +314,7 @@ call), a `REVIEW` (carries in `expects` what a correction looks like), a `CHOICE
 `options`) or an `AUTH`. `assignee` is who answers (`user:u1`, `role:procurement`). Past the
 `deadline` the run goes to `escalate_to`, or times out when nobody is named.
 
-The executor pauses with an opaque `checkpoint` (`RunStore.paused(interrupt, checkpoint=)`):
+The executor pauses with an opaque `checkpoint` (`RunsClient.pause(interrupt, checkpoint=)`):
 its resume journal and the framework's own resume state. The record returns it on every read
 and claim, so another worker resumes without repeating side effects. Finishing clears it.
 
@@ -351,10 +355,10 @@ it merely installs.
 
 | Package | Version | Notes |
 |---|---|---|
-| `trellis-contracts` | **0.4.0** | this package: contracts v3 (ADR 0002): queued runs, richer interrupts, the schedule fields agent-runs keeps, and only the ports something implements |
-| `trellis-harness` | **0.4.0** | moved to contracts 0.4.0 in the same change set |
-| `agent-runs` | **0.2.0** | pins `trellis-contracts>=0.4,<0.5` |
-| `trellis-memory` (Memory Service SDK) | **0.3.0** | what the harness's memory client is written against |
+| `trellis-contracts` | **0.5.0** | this package: contracts v3 (ADR 0002) without the `RunStore` port (ADR 0004); `trellis.runs.RunsClient` is the runs client |
+| `trellis-harness` | **0.4.0** | pins `trellis-contracts>=0.4` |
+| `agent-runs` and `trellis-runs` (its SDK) | **0.3.0** | pin `trellis-contracts>=0.4,<0.6` |
+| `trellis-memory` (Memory Service SDK) | **0.4.0** | what the harness's memory client is written against |
 | `pydantic` | `>=2.13,<3` | the only runtime dependency |
 | Python | `>=3.12` | `StrEnum`, PEP 695 generics |
 
@@ -362,7 +366,9 @@ The design decisions are in `docs/adr`: [0001](docs/adr/0001-contracts-v2.md) (r
 interrupts, feedback, judging and agent cards), [0002](docs/adr/0002-contracts-v3.md)
 (queued runs, richer interrupts, schedules, and the ports that were removed) and
 [0003](docs/adr/0003-documented-fields-and-closed-vocabularies.md) (field descriptions,
-`ErrorSource` and the other literals, and how `AgentError.of` reads SDK errors).
+`ErrorSource` and the other literals, and how `AgentError.of` reads SDK errors) and
+[0004](docs/adr/0004-no-run-store-port.md) (the `RunStore` port is gone; `trellis.runs` is
+the runs client).
 
 ## Development
 

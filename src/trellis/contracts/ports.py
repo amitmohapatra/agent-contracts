@@ -19,14 +19,7 @@ from trellis.contracts.evaluation import JudgeVerdict
 from trellis.contracts.events import AgentEvalEvent
 from trellis.contracts.messages import AgentRequest, AgentResponse
 from trellis.contracts.model import ModelRequest, ModelResponse
-from trellis.contracts.runs import (
-    Interrupt,
-    InterruptResolution,
-    RunEvent,
-    RunRecord,
-    RunStart,
-    RunStatus,
-)
+from trellis.contracts.runs import RunEvent
 from trellis.contracts.tool import ToolCall, ToolOutcome, ToolSpec
 
 # --------------------------------------------------------------------------- model / tool
@@ -178,38 +171,6 @@ class EventSink(Protocol):
     them through a :class:`TelemetryRedactor` first."""
 
     async def publish(self, event: RunEvent) -> None: ...
-
-
-@runtime_checkable
-class RunStore(Protocol):
-    """Where a run outlives the process: agent-runs, or an in-memory store in tests. A run
-    is started (or queued for a worker) idempotently by its id, paused with the interrupt it
-    waits on and the executor's opaque ``checkpoint``, resumed with the resolution it got,
-    and finished once (which clears the checkpoint). Every move is one
-    :meth:`RunStatus.can_become` allows."""
-
-    async def queued(self, start: RunStart) -> RunRecord: ...
-
-    async def started(self, start: RunStart) -> RunRecord: ...
-
-    async def paused(
-        self, interrupt: Interrupt, *, checkpoint: dict[str, Any] | None = None
-    ) -> RunRecord: ...
-
-    async def resumed(self, resolution: InterruptResolution) -> RunRecord: ...
-
-    async def finished(
-        self,
-        run_id: str,
-        status: RunStatus,
-        *,
-        output: Any = None,
-        error: AgentError | None = None,
-    ) -> RunRecord: ...
-
-    async def get(self, run_id: str) -> RunRecord | None: ...
-
-    async def list_paused(self, tenant_id: str, *, limit: int = 100) -> Sequence[RunRecord]: ...
 
 
 @runtime_checkable
