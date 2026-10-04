@@ -46,7 +46,6 @@ from trellis.contracts import (
     RunRecord,
     RunStart,
     RunStatus,
-    RunStore,
     Schedule,
     ScheduleSpec,
     ToolCall,
@@ -837,62 +836,6 @@ def test_closed_vocabularies_refuse_strangers(enum: type) -> None:
 # --------------------------------------------------------------------------- ports
 
 
-class _Runs:
-    def __init__(self) -> None:
-        self.records: dict[str, RunRecord] = {}
-
-    async def queued(self, start: RunStart) -> RunRecord:
-        return self.records.setdefault(
-            start.run_id, RunRecord.from_start(start, status=RunStatus.QUEUED)
-        )
-
-    async def started(self, start: RunStart) -> RunRecord:
-        if (queued := self.records.get(start.run_id)) and queued.status is RunStatus.QUEUED:
-            return self._move(queued, RunStatus.RUNNING)
-        return self.records.setdefault(start.run_id, RunRecord.from_start(start))
-
-    def _move(self, record: RunRecord, status: RunStatus, **fields: Any) -> RunRecord:
-        assert record.status.can_become(status), (record.status, status)
-        moved = record.model_copy(update={"status": status, **fields})
-        self.records[record.run_id] = moved
-        return moved
-
-    async def paused(
-        self, interrupt: Interrupt, *, checkpoint: dict[str, Any] | None = None
-    ) -> RunRecord:
-        return self._move(
-            self.records[interrupt.run_id],
-            RunStatus.PAUSED,
-            awaiting=interrupt,
-            checkpoint=checkpoint,
-        )
-
-    async def resumed(self, resolution: InterruptResolution) -> RunRecord:
-        current = self.records[resolution.run_id]
-        return self._move(
-            current,
-            RunStatus.RUNNING,
-            awaiting=None,
-            last_resolution=resolution,
-            attempt=current.attempt + 1,
-        )
-
-    async def finished(
-        self, run_id: str, status: RunStatus, *, output: Any = None, error: AgentError | None = None
-    ) -> RunRecord:
-        return self._move(self.records[run_id], status, output=output, error=error, checkpoint=None)
-
-    async def get(self, run_id: str) -> RunRecord | None:
-        return self.records.get(run_id)
-
-    async def list_paused(self, tenant_id: str, *, limit: int = 100) -> Sequence[RunRecord]:
-        return [
-            r
-            for r in self.records.values()
-            if r.tenant_id == tenant_id and r.status == RunStatus.PAUSED
-        ][:limit]
-
-
 class _Sink:
     def __init__(self) -> None:
         self.events: list[RunEvent] = []
@@ -922,7 +865,6 @@ class _Directory:
 
 
 _IMPLEMENTATIONS: list[tuple[type, type]] = [
-    (_Runs, RunStore),
     (_Sink, EventSink),
     (_Judge, Judge),
     (_Directory, AgentDirectory),
@@ -941,35 +883,6 @@ def test_the_ports_are_satisfied_method_for_method(implementation: type, port: t
         assert inspect.signature(getattr(implementation, name)) == inspect.signature(member), (
             f"{port.__name__}.{name}"
         )
-
-
-async def test_a_run_moves_through_a_store(ctx: AgentExecutionContext) -> None:
-    runs, sink = _Runs(), _Sink()
-    start = RunStart.from_request(AgentRequest.create(ctx, input="hi"))
-    assert (await runs.queued(start)).status is RunStatus.QUEUED
-    assert (await runs.queued(start)).status is RunStatus.QUEUED  # idempotent
-    assert (await runs.started(start)).status is RunStatus.RUNNING
-    interrupt = _interrupt(ctx)
-    paused = await runs.paused(interrupt, checkpoint={"asks": {}})
-    assert paused.awaiting is interrupt and paused.checkpoint == {"asks": {}}
-    assert [r.run_id for r in await runs.list_paused("acme")] == [start.run_id]
-    await sink.publish(RunEvent.interrupt(ctx, interrupt, 1))
-    assert sink.events[0].type is RunEventType.INTERRUPT
-    resolution = InterruptResolution(
-        interrupt_id=interrupt.interrupt_id,
-        run_id=start.run_id,
-        decision=InterruptDecision.ANSWER,
-        answer=True,
-    )
-    resumed = await runs.resumed(resolution)
-    assert (
-        resumed.status is RunStatus.RUNNING
-        and resumed.attempt == 2
-        and resumed.last_resolution is resolution
-        and resumed.checkpoint == {"asks": {}}
-    )
-    done = await runs.finished(start.run_id, RunStatus.SUCCESS, output={"ok": True})
-    assert done.final and done.checkpoint is None and (await runs.list_paused("acme")) == []
 
 
 def test_everything_new_is_exported_and_the_version_is_the_installed_one() -> None:
@@ -1000,13 +913,12 @@ def test_everything_new_is_exported_and_the_version_is_the_installed_one() -> No
         "ScheduleSpec",
         "ToolStatus",
         "EventSink",
-        "RunStore",
         "Judge",
         "AgentDirectory",
         "now",
     ):
         assert name in contracts.__all__ and hasattr(contracts, name), name
-    assert contracts.__version__ == md.version("trellis-contracts") == "0.4.0"
+    assert contracts.__version__ == md.version("trellis-contracts") == "0.5.0"
 
 
 @pytest.mark.parametrize(

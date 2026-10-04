@@ -1,7 +1,8 @@
 # ADR 0001: Contracts v2, the seams every trellis package builds on
 
-**Status:** accepted, amended by [ADR 0002](0002-contracts-v3.md) and
-[ADR 0003](0003-documented-fields-and-closed-vocabularies.md) · **Date:** 2026-09-28
+**Status:** accepted, amended by [ADR 0002](0002-contracts-v3.md),
+[ADR 0003](0003-documented-fields-and-closed-vocabularies.md) and
+[ADR 0004](0004-no-run-store-port.md) · **Date:** 2026-09-28
 
 ## Context
 `trellis-contracts` 0.2 carried the V1 seams: `AgentRequest`/`AgentResponse`, the execution

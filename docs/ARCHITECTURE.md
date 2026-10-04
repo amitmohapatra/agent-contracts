@@ -94,7 +94,6 @@ flowchart LR
     JU[Judge]
   end
   subgraph durable[Runs and surfaces]
-    RS[RunStore]
     ES[EventSink]
     AD[AgentDirectory]
   end
@@ -104,7 +103,7 @@ flowchart LR
   core --> durable
 
   TR -. "implemented by trellis.harness.redaction.Redactor" .- HR["agent-harness"]
-  RS -. "same verbs as the harness's Runs store,<br/>which agent-runs backs over HTTP" .- RUNS["agent-runs"]
+  core -. "runs: no port; trellis.runs.RunsClient<br/>sends and returns the run types" .- RUNS["agent-runs"]
   MP -. "fronts the Memory Service<br/>(no adapter declares it today)" .- MEM["agent-memory-service"]
 ```
 
@@ -119,7 +118,6 @@ flowchart LR
 | `EvaluationProvider` | `score`, `submit_dataset_item` | write scores and dataset items to the tracing backend | no sibling declares it |
 | `AgentPolicyProvider` | `authorize_execution`, `authorize_tool`, `authorize_model` | allow or refuse a run, a tool call, a model call | no sibling declares it |
 | `EventSink` | `publish` | deliver a run's `RunEvent` stream | no sibling declares it |
-| `RunStore` | `queued`, `started`, `paused`, `resumed`, `finished`, `get`, `list_paused` | keep a run beyond the process | the harness's `Runs` store has the same lifecycle verbs, backed by agent-runs, but lists its inbox with `Runs.inbox`, so it is not asserted as a `RunStore` |
 | `Judge` | `judge` | score a finished run off the critical path | no sibling declares it |
 | `AgentDirectory` | `get`, `find`, `publish` | find agents another agent may call, as `AgentCard`s | no sibling declares it |
 | `AgentInterceptor` | `name`, `order`, `before`, `after`, `on_error` | add a stage to the execution pipeline | no sibling declares it |
@@ -129,29 +127,35 @@ today. The port is still the seam an adapter is written against, and this packag
 check each one against a double with the exact signatures (`tests/test_ports.py`,
 `tests/test_contracts_v2.py`).
 
+Runs have no port (ADR 0004). A run is kept beyond the process by agent-runs, and its client
+is `trellis.runs.RunsClient` (pip `trellis-runs`, shipped from agent-runs). Its verbs are the
+service's operation ids (`start`, `claim`, `heartbeat`, `pause`, `resume`, `finish`, `get`,
+`list`), and it sends and returns the types in this package: `RunStart`, `Interrupt`,
+`InterruptResolution` and `RunRecord`.
+
 ## A run's lifecycle
 
 `RunStatus.can_become(target)` is the one transition check. It reads the `_TRANSITIONS` table
 in `runs.py`, and a final status has no entry, so it moves nowhere. `RunRecord.from_start`
-only creates `QUEUED` or `RUNNING` records.
+only creates `QUEUED` or `RUNNING` records. The labels are `RunsClient` verbs.
 
 ```mermaid
 stateDiagram-v2
-  [*] --> QUEUED : RunStore.queued / from_start(status=QUEUED)
-  [*] --> RUNNING : RunStore.started / from_start()
-  QUEUED --> RUNNING : a worker claims it
+  [*] --> QUEUED : start(queue=True) / from_start(status=QUEUED)
+  [*] --> RUNNING : start / from_start()
+  QUEUED --> RUNNING : claim, by a worker
   QUEUED --> CANCELLED
   QUEUED --> TIMEOUT
   RUNNING --> QUEUED : the worker's lease lapsed
-  RUNNING --> PAUSED : RunStore.paused(interrupt, checkpoint=)
-  RUNNING --> SUCCESS
-  RUNNING --> PARTIAL
-  RUNNING --> ERROR
-  RUNNING --> REJECTED
-  RUNNING --> CANCELLED
-  RUNNING --> TIMEOUT
-  PAUSED --> RUNNING : RunStore.resumed, in process
-  PAUSED --> QUEUED : resumed for a worker
+  RUNNING --> PAUSED : pause(interrupt, checkpoint=)
+  RUNNING --> SUCCESS : finish
+  RUNNING --> PARTIAL : finish
+  RUNNING --> ERROR : finish
+  RUNNING --> REJECTED : finish
+  RUNNING --> CANCELLED : finish
+  RUNNING --> TIMEOUT : finish
+  PAUSED --> RUNNING : resume, in process
+  PAUSED --> QUEUED : resume, for a worker
   PAUSED --> CANCELLED
   PAUSED --> TIMEOUT : past the deadline, nobody to escalate to
   SUCCESS --> [*]
@@ -178,7 +182,7 @@ raise `ValueError` because they have no outcome yet.
 
 A run that pauses for an approval, driven the way the contract expects. agent-harness
 pauses through its own `Runtime.ask` rather than raising `AgentPaused`, but it resumes in this
-order: the store accepts the resolution before the feedback is sent, so a decision that never
+order: agent-runs accepts the resolution before the feedback is sent, so a decision that never
 took effect is never learned from.
 
 ```mermaid
@@ -186,25 +190,25 @@ sequenceDiagram
   autonumber
   participant A as Agent
   participant H as Harness
-  participant S as RunStore
+  participant S as RunsClient (agent-runs)
   participant E as EventSink
   participant P as Person / UI
   participant M as Memory Service
 
-  H->>S: started(RunStart.from_request(request))
+  H->>S: start(RunStart.from_request(request))
   S-->>H: RunRecord (RUNNING)
   H->>E: publish(RunEvent.started(ctx, 0))
   A-->>H: raise AgentPaused("Approve the refund?")
   H->>H: Interrupt.from_paused(paused, context=ctx, reason=APPROVAL, tool_call=...)
-  H->>S: paused(interrupt, checkpoint={...})
+  H->>S: pause(interrupt, checkpoint={...})
   S-->>H: RunRecord (PAUSED, awaiting=interrupt)
   H->>E: publish(RunEvent.finished(ctx, "interrupt", n, interrupt=interrupt))
   P->>H: InterruptResolution(decision=APPROVE)
-  H->>S: resumed(resolution)
+  H->>S: resume(resolution)
   S-->>H: RunRecord (RUNNING, attempt+1, checkpoint returned)
   H->>M: resolution.to_feedback(interrupt, ctx) as Feedback
   A-->>H: AgentResponse.ok(data)
-  H->>S: finished(run_id, SUCCESS, output=data)
+  H->>S: finish(run_id, SUCCESS, output=data)
   S-->>H: RunRecord (SUCCESS, checkpoint cleared)
   H->>E: publish(RunEvent.finished(ctx, "success", n+1))
 ```

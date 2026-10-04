@@ -1,6 +1,7 @@
 """Runs, the events they emit, the interrupts that pause them, and the schedules that start
-them (PLATFORM-DESIGN §4, §7, §10). Types only: a run store and an event sink are ports in
-:mod:`trellis.contracts.ports`; agent-runs keeps runs and schedules.
+them (PLATFORM-DESIGN §4, §7, §10). Types only: an event sink is a port in
+:mod:`trellis.contracts.ports`; agent-runs keeps runs and schedules, and its client is
+``trellis.runs.RunsClient``.
 
 A chat turn, a week-long cowork run and a 6 a.m. schedule differ in who drives and where
 state lives, not in their contract: the same :class:`RunEvent` stream leaves every surface,
@@ -331,9 +332,10 @@ _DECISION_VERDICT: dict[InterruptDecision, FeedbackVerdict] = {
 
 
 class InterruptResolution(BaseModel):
-    """How an interrupt was answered. The paused run continues (``RunStore.resumed`` moves it
-    back to ``RUNNING`` on the same run id, the next attempt); the resolution names the
-    interrupt and the run so a store can refuse an answer to the wrong question."""
+    """How an interrupt was answered. The paused run continues (``RunsClient.resume`` in
+    ``trellis.runs`` moves it back to ``RUNNING`` on the same run id, the next attempt); the
+    resolution names the interrupt and the run so agent-runs can refuse an answer to the wrong
+    question."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
