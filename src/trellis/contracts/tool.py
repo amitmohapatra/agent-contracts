@@ -61,7 +61,7 @@ class ToolStatus(StrEnum):
 class ToolOutcome(BaseModel):
     """The normalized result of a tool call."""
 
-    model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True, validate_assignment=True)
+    model_config = ConfigDict(extra="allow", validate_assignment=True)
 
     tool: str
     status: ToolStatus = ToolStatus.OK

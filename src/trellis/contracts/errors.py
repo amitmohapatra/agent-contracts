@@ -8,7 +8,6 @@ zoo. Cancellation is *never* normalized away: :class:`asyncio.CancelledError` pr
 from __future__ import annotations
 
 import asyncio
-import builtins
 from enum import StrEnum
 from typing import Any
 
@@ -153,7 +152,7 @@ def classify(exc: BaseException) -> ErrorCategory:
     """
     if isinstance(exc, asyncio.CancelledError):
         return ErrorCategory.CANCELLED
-    if isinstance(exc, asyncio.TimeoutError | builtins.TimeoutError):
+    if isinstance(exc, TimeoutError):  # asyncio.TimeoutError is this class since 3.11
         return ErrorCategory.TIMEOUT
     if isinstance(exc, ValueError | TypeError | KeyError):
         return ErrorCategory.VALIDATION
