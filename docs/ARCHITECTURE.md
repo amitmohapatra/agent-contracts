@@ -5,12 +5,17 @@
 `pydantic` (`tests/test_contracts.py` fails the build if a module imports anything else).
 This page shows how the pieces fit, who uses which, and the one state machine the package
 owns. The decisions behind it are ADRs [0001](adr/0001-contracts-v2.md),
-[0002](adr/0002-contracts-v3.md) and [0003](adr/0003-documented-fields-and-closed-vocabularies.md).
+[0002](adr/0002-contracts-v3.md), [0003](adr/0003-documented-fields-and-closed-vocabularies.md)
+and [0004](adr/0004-no-run-store-port.md).
 
 ## In the platform
 
-Two sibling packages import it; the Memory Service speaks some of its shapes without
-importing it; `bifrost-sdk` is independent of it.
+Two sibling repos import it (agent-harness, and agent-runs with its SDK `trellis.runs`); the
+Memory Service speaks some of its shapes without importing it; `bifrost-sdk` is independent
+of it. The arrows from the harness are Way 1 of the
+[two ways to use Trellis](../README.md#where-this-fits-two-ways-to-use-trellis); in Way 2 your
+own code takes the harness's place and sends the same records with `trellis.runs` and
+`trellis.memory`.
 
 ```mermaid
 flowchart LR
@@ -55,7 +60,7 @@ flowchart BT
   evaluation["evaluation<br/>JudgeVerdict"]
   a2a["a2a<br/>AgentCard"]
   runs["runs<br/>RunStatus, RunStart, RunRecord, Interrupt,<br/>RunEvent, ScheduleSpec, Schedule"]
-  ports["ports<br/>13 Protocols"]
+  ports["ports<br/>12 Protocols"]
 
   context --> ids
   tool --> artifacts
