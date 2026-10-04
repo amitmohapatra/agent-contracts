@@ -2,8 +2,8 @@
 
 The types an agent must accept and return. No runtime, no transport, no I/O.
 
-The platform's agent harness (`agent-harness`) and run service (`agent-runs`) build on this
-package. It depends on nothing but `pydantic`, and that is the point: the contract can be read,
+The platform's agent harness (`agent-harness`), its run service (`agent-runs`) and that
+service's SDK (`trellis.runs`) build on this package. It depends on nothing but `pydantic`, and that is the point: the contract can be read,
 versioned and reasoned about without pulling in a gateway, a database or an agent framework.
 It is importable as `trellis.contracts`.
 
@@ -12,6 +12,82 @@ event, a pause, a judgement. **Ports** are the outbound dependencies, written as
 so a harness can be built against the seam and a service swapped in behind it.
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) has the diagrams: who uses what, how the modules
 and ports relate, the run lifecycle, and the main models.
+
+## Where this fits: two ways to use Trellis
+
+Trellis is used in one of two ways, and each block works in both:
+
+- **Way 1, wrapped.** `from trellis import Harness; h = Harness(); agent = h.wrap(my_agent)`.
+  The harness runs your agent (LangGraph, Deep Agents, OpenAI Agents SDK, Claude Agent SDK,
+  a plain function) and uses every block automatically: memory context, recording and
+  feedback; durable runs, the inbox, schedules and the worker in agent-runs; governance of
+  tool calls; models and MCP tools through Bifrost; evals; the AG-UI and A2A surfaces.
+- **Way 2, pluggable blocks.** Keep your framework untouched and import only the blocks you
+  want: `trellis.memory` (`MemoryClient`), `trellis.runs` (`RunsClient`, `Worker`,
+  `webhooks.verify_signature`), `trellis.contracts` (the shared types), `bifrost_sdk` (models
+  and MCP tools through Bifrost), and from the harness repo `trellis.harness.governance`
+  (`Governance.from_env`, `check`, `governed`), `trellis.harness.evals` (`EvalServices`,
+  `evaluate`, `judge`) and `trellis.harness.a2a.remote`.
+
+A package shipped from its own repo is top-level `trellis.X`; anything from the harness repo
+is `trellis.harness.X`. `bifrost_sdk` (pip `bifrost-sdk`) is the exception: it keeps its own,
+older name.
+
+**This package** is the vocabulary the blocks share: the records that cross a process
+boundary (a run, a pause, its answer, a judgement, an agent card) and the ports an adapter is
+written against. It has no runtime, so it is never switched on or off: in both ways it is how
+the blocks agree on what goes in and what comes out.
+
+| | What happens with `trellis.contracts` |
+|---|---|
+| **Way 1, wrapped** | The harness builds and reads every record: each run is a `RunStart` in agent-runs, a pause an `Interrupt`, its answer an `InterruptResolution`, an approval the `Feedback` memory learns from. You write no contracts code. You meet the types in what the harness returns (`Result.interrupt`, the `RunEvent`s of `agent.stream()`, the `RunRecord` of `handle.status()`), and you answer a pause with `agent.resume(interrupt_id, decision)`. The one field you set yourself is a tool's `side_effects` (`tool(fn, side_effects=...)`), which governance reads. |
+| **Way 2, pluggable** | You build the records and hand them to the blocks you imported, which take and return exactly these types: |
+
+```python
+from trellis.contracts import (
+    AgentExecutionContext,
+    AgentPaused,
+    AgentRequest,
+    Interrupt,
+    InterruptDecision,
+    InterruptReason,
+    InterruptResolution,
+    RunStart,
+    ToolCall,
+)
+from trellis.memory import MemoryClient
+from trellis.runs import RunsClient
+
+ctx = AgentExecutionContext.create(tenant_id="acme", user_id="u1", agent_id="buyer")
+async with RunsClient() as runs:  # RUNS_URL and TRELLIS_API_KEY
+    run = await runs.start(RunStart.from_request(AgentRequest.create(ctx, {"sku": "A-1"})))
+    asked = Interrupt.from_paused(
+        AgentPaused("Order 12 of A-1?"),
+        context=ctx,
+        reason=InterruptReason.APPROVAL,
+        tool_call=ToolCall(tool="erp.order", args={"sku": "A-1", "qty": 12}),
+    )
+    await runs.pause(asked, checkpoint={"step": 2})  # the run waits for a person
+    answer = InterruptResolution(
+        interrupt_id=asked.interrupt_id, run_id=run.run_id, decision=InterruptDecision.APPROVE
+    )
+    await runs.resume(answer, tenant="acme")  # a RunRecord, RUNNING again
+
+memory = MemoryClient().bind(**ctx.scope_fields())  # the context is the memory scope
+await memory.feedback(answer.to_feedback(asked, ctx))  # what memory learns approvals from
+```
+
+- **Choose Way 1 when** you want the records built, stored and answered for you: the harness
+  keeps run, pause, answer and feedback consistent with each other.
+- **Choose Way 2 when** your framework runs the agent and you call agent-runs, the memory
+  service or governance yourself: build these types once and pass them as they are.
+  [Each group, in each way](#each-group-in-each-way) says which block takes which type.
+
+Harness docs: [the two ways](https://github.com/amitmohapatra/agent-harness/blob/main/README.md#two-ways-to-use-trellis) · [every page](https://github.com/amitmohapatra/agent-harness/blob/main/docs/README.md) ·
+blocks: [contracts](https://github.com/amitmohapatra/agent-harness/blob/main/docs/blocks/contracts.md), [memory](https://github.com/amitmohapatra/agent-harness/blob/main/docs/blocks/memory.md), [runs](https://github.com/amitmohapatra/agent-harness/blob/main/docs/blocks/runs.md),
+[governance](https://github.com/amitmohapatra/agent-harness/blob/main/docs/blocks/governance.md), [evaluation](https://github.com/amitmohapatra/agent-harness/blob/main/docs/blocks/evaluation.md), [A2A](https://github.com/amitmohapatra/agent-harness/blob/main/docs/blocks/a2a.md) ·
+recipes: [LangGraph](https://github.com/amitmohapatra/agent-harness/blob/main/docs/blocks/langgraph.md), [OpenAI Agents SDK](https://github.com/amitmohapatra/agent-harness/blob/main/docs/blocks/openai-agents.md),
+[Claude Agent SDK](https://github.com/amitmohapatra/agent-harness/blob/main/docs/blocks/claude-agent-sdk.md).
 
 ## Install
 
@@ -99,7 +175,52 @@ assert answer.resolves(interrupt)
 assert event.data["interrupt"]["options"] == ["Acme", "Globex"]
 ```
 
+## Each group, in each way
+
+What each exported group is, when you touch it wrapped (mostly never: the harness builds the
+records), and which block takes or returns it when you plug blocks in yourself. "No block"
+means no sibling package takes that type today; it is there for code of your own.
+
+| Group | What it is | Way 1, wrapped | Way 2, pluggable |
+| --- | --- | --- | --- |
+| `context` | `AgentExecutionContext`: who, for whom, in which thread and run, until when | never: one is built per run | build one per execution; `MemoryClient().bind(**ctx.scope_fields())` is its memory scope, `RunStart.from_request(AgentRequest.create(ctx, input))` its run, and `to_feedback(interrupt, ctx)` attributes a decision to it |
+| `messages` | `AgentRequest`, `AgentResponse`, `AgentStatus` | never: `agent.run` takes your input and returns the harness's `Result` | `AgentRequest` feeds `RunStart.from_request`; `AgentResponse` is a result shape for your own agents (no block takes it) |
+| `artifacts` | `ArtifactRef`, `EvidenceRef`, `Claim`, `MemoryObservation`, ... | never: an `ask` table or diff is uploaded for you and becomes the interrupt's `payload_ref` | `RunsClient.artifacts.upload(...)` returns the `ArtifactRef` you put on `Interrupt.payload_ref`; the rest are fields of `AgentResponse` (no block reads them) |
+| `tool` | `ToolSpec`, `ToolCall`, `ToolOutcome`, `ToolStatus`, `ToolSource` | only `side_effects`: `tool(fn, side_effects="irreversible")` becomes `ToolSpec.side_effects`, which governance reads; an approval's `Result.interrupt.tool_call` is a `ToolCall` | `Governance.check(spec.name, args, side_effects=spec.side_effects)` and `Governance.publish(specs)` read `ToolSpec`s; `remote(url, ...).spec` is one; an `APPROVAL` `Interrupt` carries the `ToolCall` |
+| `model` | `ModelRequest`, `ModelResponse`, `ModelUsage` | never: models go through Bifrost | no block: `bifrost_sdk` is the model client; these are the `ModelClient` port's shapes, for an adapter of your own |
+| `errors` | `AgentError`, `AgentPaused`, the `HarnessError` family, `classify` | you read `AgentError` on `Result.error` and `RunRecord.error`; you raise nothing | `RunsClient.finish(run_id, RunStatus.ERROR, error=AgentError.of(exc, source=...))`; `classify(exc)` sorts memory, Bifrost and `httpx` failures |
+| `runs` | `RunStart`, `RunRecord`, `RunStatus`, `RunEvent`, `Interrupt`, `InterruptResolution`, `ScheduleSpec`, `Schedule`, ... | you read them: `agent.stream()` yields `RunEvent`s, `Result.interrupt` is an `Interrupt`, `handle.status()` a `RunRecord`, `agent.schedule(...)` a `Schedule`; you answer with `agent.resume(interrupt_id, decision)` (an `InterruptDecision` or its name), which becomes the `InterruptResolution` | `RunsClient.start(RunStart)` → `RunRecord`; `pause(Interrupt, checkpoint=)`, `resume(InterruptResolution)` and `finish(...)` → `RunRecord`; `list(status=RunStatus.PAUSED, assignee=...)` is the inbox; `schedules.create(ScheduleSpec)` → `Schedule`; a `Worker`'s `Job.record` is a `RunRecord`. `RunEvent` is yours to stream (no block takes it) |
+| `feedback`, `evaluation` | `Feedback`, `FeedbackVerdict`, `JudgeVerdict`, `AgentEvalEvent` | never: each approve, reject or edit goes to memory as `InterruptResolution.to_feedback(...)`; `h.feedback(run_id, verdict)` takes a `FeedbackVerdict` or its name | the memory SDK's `feedback(record)` sends a `Feedback` as it is (`to_feedback(...)`, `Feedback.for_context(...)`, `JudgeVerdict.as_feedback(...)`); `Governance.decided(...)` builds the one for a tool call. `trellis.harness.evals` scores with its own `EvalScore`, not `JudgeVerdict` |
+| `descriptors`, `a2a` | `AgentDescriptor`, `SkillDescriptor`, `AgentCard` and its parts | never: `serve_a2a` publishes the card with `a2a-sdk` | build or read a card in A2A code of your own (`AgentCard.from_descriptor(...).to_a2a()`, `AgentCard.from_a2a(json)`); `trellis.harness.a2a.remote` reads cards with `a2a-sdk` instead (no block takes these) |
+| `ids` | `new_id`, `stable_id`, `safe_id`, `now` | never | `stable_id(...)` or `ctx.idempotency_key(...)` for a key a retry repeats (`RunStart.idempotency_key`, `ToolCall.idempotency_key`) |
+| ports | the 12 `Protocol`s in `trellis.contracts.ports` | never; the harness's `Redactor` is a `TelemetryRedactor` | only when you write an adapter of your own; no block requires one |
+
+## One definition on every wire
+
+The same record means the same thing to every block because it is defined once, here:
+
+* **One definition.** agent-runs' service and its SDK (`trellis.runs`) and the harness import
+  these models; none redefines them. The memory service does not import the package but
+  speaks its shapes: `POST /v1/feedback` takes a `Feedback` unchanged, `scope_fields()`
+  returns its `Scope` keywords, and `OBSERVATION_KINDS` is its `ObservationKind`.
+* **The API is built from them.** agent-runs' OpenAPI document embeds these models
+  (`RunCreate` subclasses `RunStart`; `RunRecord`, `Interrupt`, `InterruptResolution`,
+  `Schedule`, `ScheduleSpec`, `AgentError`, `ArtifactRef` are used as they are). Its CI fails
+  when the committed document differs from the code's, and `trellis.runs`' tests check every
+  model it sends or parses against that document.
+* **Strict where it is written, lenient where it is read.** What a producer writes refuses
+  unknown fields (`extra="forbid"`) and is frozen: a typo fails at the sender, not three hops
+  later. What is read back from a store or a peer ignores unknown fields, so a newer peer
+  does not break an older reader ([Wire conventions](#wire-conventions)).
+* **Versioned pins.** agent-runs and `trellis-runs` pin `trellis-contracts>=0.4,<0.6` and the
+  harness `>=0.4`, so a release that changes a record is a new minor version the pins must
+  admit before anyone sends it; [Versions](#versions-and-what-goes-with-what) lists what goes
+  with what, and each change has its ADR.
+
 ## Which type do I use?
+
+The task-by-task view of [the table above](#each-group-in-each-way). Wrapped, the harness
+does these for you; the rows are what you write when you plug the blocks in yourself.
 
 | When you want to... | Use |
 | --- | --- |
@@ -107,25 +228,25 @@ assert event.data["interrupt"]["options"] == ["Acme", "Globex"]
 | call a nested agent | `ctx.for_agent("worker")`: it keeps the tenant, user, thread and trace, makes this run the parent, and never extends the deadline |
 | return a result from an agent | `AgentResponse.ok(data)`, `AgentResponse.failed(error)`, or `AgentResponse.coerce(anything)` to wrap an existing return value |
 | say where an answer came from | `Claim` with `evidence_ids`, plus `EvidenceRef`s on `AgentResponse.evidence` |
-| return something too large for the result | `ArtifactClient.put(...)`, which returns an `ArtifactRef` |
-| ask the Memory Service to remember something | `MemoryObservation`, whose `kind` must be one of `OBSERVATION_KINDS` (the `ObservationKind` literal) |
+| return something too large for the result | `RunsClient.artifacts.upload(run_id, data)` for a run's payload, which returns an `ArtifactRef`; `ArtifactClient.put(...)` is the port for a store of your own |
+| say what an agent wants remembered, in its result | `MemoryObservation` on `AgentResponse.memory_observations`, whose `kind` must be one of `OBSERVATION_KINDS` (the `ObservationKind` literal). No block reads it today: to write to the Memory Service, call `trellis.memory` (`remember`, `history.add`) |
 | propose a next step instead of calling another agent | `RecommendedAction` |
 | report a non-fatal problem | `response.add_warning(code, message, **details)`, which adds an `AgentWarning` |
 | fail in a way callers can branch on | raise a `HarnessError` subclass; turn any exception into an `AgentError` with `AgentError.of(exc, source=...)`, where `source` is an `ErrorSource` |
-| ask a person something in the middle of a run | raise `AgentPaused(question)` in the agent; the harness turns it into an `Interrupt` with `Interrupt.from_paused` |
+| ask a person something in the middle of a run | wrapped, `await trellis.current().ask(question, ...)`, and the harness builds the `Interrupt`; in your own code, `Interrupt.from_paused(AgentPaused(question), context=ctx, ...)`, then `RunsClient.pause(interrupt, checkpoint=...)` |
 | get a tool call approved before it runs | `Interrupt(reason=InterruptReason.APPROVAL, tool_call=ToolCall(...))` |
-| record how a person answered | `InterruptResolution`; for an approve, reject or edit of a tool call, `resolution.to_feedback(interrupt, ctx)` gives the matching `Feedback` |
+| record how a person answered | `InterruptResolution`, sent with `RunsClient.resume(resolution)`; for an approve, reject or edit of a tool call, `resolution.to_feedback(interrupt, ctx)` gives the matching `Feedback`, which the memory SDK's `feedback(record)` sends as it is |
 | record a judgement on a run, answer, memory, tool call, brief or procedure | `Feedback.for_context(ctx, target_kind=..., target_id=..., verdict=...)` |
-| score a finished run automatically | a `Judge` returns a `JudgeVerdict`; `verdict.as_feedback(event)` turns it into judge `Feedback` on the `AgentEvalEvent`'s answer |
+| score a finished run automatically | `trellis.harness.evals` (`judge`, `evaluate`) with its own evaluators; for a judge of your own, the `Judge` port returns a `JudgeVerdict`, and `verdict.as_feedback(event)` turns it into judge `Feedback` on the `AgentEvalEvent`'s answer |
 | keep a run beyond the process, or queue it for a worker | `RunStart.from_request(request)`, then `RunsClient.start(start)` or `RunsClient.start(start, queue=True)` from `trellis.runs` (the agent-runs SDK), which return a `RunRecord` |
 | check whether a status change is allowed | `RunStatus.can_become(target)` |
-| stream progress to a UI | the `RunEvent` constructors (`started`, `text`, `tool`, `interrupt`, `custom`, `finished`), sent with `EventSink.publish` |
-| run an agent on a schedule | `ScheduleSpec` is what a caller writes; `Schedule` is what agent-runs returns |
-| publish an agent to other agents | `AgentDescriptor.build(...)`, then `AgentCard.from_descriptor(descriptor, url=...)`, then `card.to_a2a()` |
+| stream progress to a UI | wrapped, `agent.stream()` yields the `RunEvent`s; in your own code, the `RunEvent` constructors (`started`, `text`, `tool`, `interrupt`, `custom`, `finished`), sent with `EventSink.publish` |
+| run an agent on a schedule | `ScheduleSpec` is what a caller writes (`RunsClient.schedules.create(spec)`); `Schedule` is what agent-runs returns |
+| publish an agent to other agents from A2A code of your own | `AgentDescriptor.build(...)`, then `AgentCard.from_descriptor(descriptor, url=...)`, then `card.to_a2a()` (a wrapped agent's `serve_a2a` publishes its card itself) |
 | read another agent's card | `AgentCard.from_a2a(json)`, which drops unknown keys and refuses non-http(s) URLs |
-| describe, call and report tools | `ToolSpec` (`descriptor()` is the Memory Service shape), `ToolCall`, `ToolOutcome` with its `ToolStatus` |
-| call a model provider-neutrally | `ModelRequest`, a `ModelClient`, `ModelResponse.coerce(raw)`, and `ModelUsage.extract(raw)` for token counts |
-| scope a Memory Service call | `ctx.scope_fields()` |
+| describe, call and report tools | `ToolSpec` (`descriptor()` is the Memory Service shape; `side_effects` is what governance decides from), `ToolCall`, `ToolOutcome` with its `ToolStatus` |
+| call a model provider-neutrally | `bifrost_sdk` is the platform's model client; `ModelRequest`, a `ModelClient`, `ModelResponse.coerce(raw)` and `ModelUsage.extract(raw)` (token counts) are for an adapter of your own |
+| scope a Memory Service call | `MemoryClient().bind(**ctx.scope_fields())` |
 | make a write idempotent across retries | `ctx.idempotency_key(*parts)`, or `stable_id(*parts)` |
 | log with the run's identifiers | `ctx.log_fields()` |
 
@@ -328,7 +449,8 @@ rejected at the far end of an HTTP call.
 ## Wire conventions
 
 * **What the platform writes and streams refuses unknown fields**: `RunStart`, `RunEvent`,
-  `Interrupt`, `InterruptResolution`, `Feedback`, `JudgeVerdict`, `ScheduleSpec`. A
+  `Interrupt`, `InterruptResolution`, `Feedback`, `JudgeVerdict`, `ScheduleSpec` and
+  `AgentExecutionContext`. A
   producer's typo is an error, not a silently dropped field. What is *read back* from a store
   (`RunRecord`, `Schedule`) or from another agent (`AgentCard`) **ignores** unknown fields, so
   a newer peer does not break an older reader.
