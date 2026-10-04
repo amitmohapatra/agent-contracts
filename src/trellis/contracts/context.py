@@ -45,36 +45,82 @@ class AgentExecutionContext(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     # -- tenancy / principal
-    tenant_id: str
-    workspace_id: str | None = None
-    user_id: str | None = None
-    group_ids: tuple[str, ...] = ()
+    tenant_id: str = Field(description="Tenant the execution runs for; scopes every side effect.")
+    workspace_id: str | None = Field(
+        default=None, description="Workspace within the tenant; None when unused."
+    )
+    user_id: str | None = Field(
+        default=None, description="End user the execution acts for; None when there is none."
+    )
+    group_ids: tuple[str, ...] = Field(
+        default=(), description="Groups the user belongs to, for group-scoped memory access."
+    )
 
     # -- conversation
-    thread_id: str | None = None
-    session_id: str | None = None
-    turn_id: str | None = None
+    thread_id: str | None = Field(
+        default=None, description="Conversation thread; None outside a conversation."
+    )
+    session_id: str | None = Field(
+        default=None,
+        description="Session within the thread; derived as '<thread_id>-session' when turn_id "
+        "is set without one.",
+    )
+    turn_id: str | None = Field(
+        default=None,
+        description="Turn within the session; left out of the Memory Service scope without "
+        "a thread_id.",
+    )
 
     # -- unit of work
-    work_id: str | None = None
-    task_id: str | None = None
+    work_id: str | None = Field(
+        default=None, description="Larger unit of work the execution is part of (a case, a job)."
+    )
+    task_id: str | None = Field(
+        default=None, description="Task within the work this execution performs."
+    )
 
     # -- agent identity
-    agent_id: str
-    agent_group_id: str | None = None
-    agent_run_id: str
-    parent_agent_run_id: str | None = None
+    agent_id: str = Field(
+        description="Id of the executing agent, in the shared id alphabet ([A-Za-z0-9._:-])."
+    )
+    agent_group_id: str | None = Field(
+        default=None, description="Group of agents the executing agent belongs to."
+    )
+    agent_run_id: str = Field(
+        description="Id of this execution's run, 'run_' plus 32 hex characters unless given."
+    )
+    parent_agent_run_id: str | None = Field(
+        default=None, description="Run that started this one; None for a root execution."
+    )
 
     # -- correlation
-    request_id: str
-    correlation_id: str
-    causation_id: str | None = None
-    trace_id: str
+    request_id: str = Field(
+        description="Id of the request that started the execution, 'req_' plus 32 hex "
+        "characters unless given."
+    )
+    correlation_id: str = Field(
+        description="Id shared by everything one inbound request causes; the request_id "
+        "unless given."
+    )
+    causation_id: str | None = Field(
+        default=None, description="Run that directly caused this one (the parent's run id)."
+    )
+    trace_id: str = Field(
+        description="Trace id every span and log line of the execution carries; 32 hex "
+        "characters unless given."
+    )
 
     # -- deadline (absolute, timezone-aware)
-    deadline: datetime | None = None
+    deadline: datetime | None = Field(
+        default=None,
+        description="Absolute time the execution must end by (ISO 8601, timezone-aware); a "
+        "child's never outlives its parent's. None for no deadline.",
+    )
 
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Free-form JSON object a child inherits (merged with its own).",
+    )
 
     @model_validator(mode="before")
     @classmethod

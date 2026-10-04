@@ -44,19 +44,36 @@ class AgentRequest(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="allow")
 
-    request_id: str
-    objective: str | None = None
-    input: Any = None
+    request_id: str = Field(description="Id of the request; create() takes the context's.")
+    objective: str | None = Field(
+        default=None,
+        description="What the agent is asked to achieve, in words; also the memory query.",
+    )
+    input: Any = Field(default=None, description="The agent's input, any JSON value, as given.")
 
-    context: AgentExecutionContext
+    context: AgentExecutionContext = Field(
+        description="Identity and lineage of the execution the request starts."
+    )
 
-    skills_requested: list[str] = Field(default_factory=list)
-    constraints: dict[str, Any] = Field(default_factory=dict)
+    skills_requested: list[str] = Field(
+        default_factory=list, description="Ids of the skills the caller wants used."
+    )
+    constraints: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Limits the caller sets (budget, allowed tools...), as a JSON object.",
+    )
 
-    artifact_refs: list[ArtifactRef] = Field(default_factory=list)
-    evidence_refs: list[EvidenceRef] = Field(default_factory=list)
+    artifact_refs: list[ArtifactRef] = Field(
+        default_factory=list, description="Large inputs passed by reference."
+    )
+    evidence_refs: list[EvidenceRef] = Field(
+        default_factory=list, description="Evidence the caller supplies for the agent to use."
+    )
 
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Free-form JSON object; RunStart.from_request copies it onto the run.",
+    )
 
     @classmethod
     def create(cls, context: AgentExecutionContext, input: Any = None, **fields: Any) -> Self:
@@ -86,21 +103,40 @@ class AgentResponse(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
-    status: AgentStatus = AgentStatus.SUCCESS
+    status: AgentStatus = Field(default=AgentStatus.SUCCESS, description="How the execution ended.")
 
-    data: Any = None
+    data: Any = Field(default=None, description="The agent's answer, any JSON value.")
 
-    claims: list[Claim] = Field(default_factory=list)
-    evidence: list[EvidenceRef] = Field(default_factory=list)
-    artifacts: list[ArtifactRef] = Field(default_factory=list)
-    memory_observations: list[MemoryObservation] = Field(default_factory=list)
-    recommended_actions: list[RecommendedAction] = Field(default_factory=list)
+    claims: list[Claim] = Field(
+        default_factory=list, description="Assertions made, each with its evidence ids."
+    )
+    evidence: list[EvidenceRef] = Field(
+        default_factory=list, description="Evidence the claims cite."
+    )
+    artifacts: list[ArtifactRef] = Field(
+        default_factory=list, description="Large outputs passed by reference."
+    )
+    memory_observations: list[MemoryObservation] = Field(
+        default_factory=list, description="What to write to memory after the response."
+    )
+    recommended_actions: list[RecommendedAction] = Field(
+        default_factory=list, description="Next steps the agent proposes."
+    )
 
-    confidence: float | None = None
-    warnings: list[AgentWarning] = Field(default_factory=list)
-    metrics: dict[str, float] = Field(default_factory=dict)
+    confidence: float | None = Field(
+        default=None,
+        description="The agent's confidence in the answer, from 0 to 1 by convention.",
+    )
+    warnings: list[AgentWarning] = Field(
+        default_factory=list, description="Non-fatal problems the caller should see."
+    )
+    metrics: dict[str, float] = Field(
+        default_factory=dict, description="Named numeric measurements of the execution."
+    )
 
-    error: AgentError | None = None
+    error: AgentError | None = Field(
+        default=None, description="The failure, for a status that is not ok; None otherwise."
+    )
 
     @classmethod
     def ok(cls, data: Any = None, **fields: Any) -> Self:

@@ -4,8 +4,8 @@
 `typing.Protocol` ports. It has no runtime, transport or I/O, and its only dependency is
 `pydantic` (`tests/test_contracts.py` fails the build if a module imports anything else).
 This page shows how the pieces fit, who uses which, and the one state machine the package
-owns. The decisions behind it are ADRs [0001](adr/0001-contracts-v2.md) and
-[0002](adr/0002-contracts-v3.md).
+owns. The decisions behind it are ADRs [0001](adr/0001-contracts-v2.md),
+[0002](adr/0002-contracts-v3.md) and [0003](adr/0003-documented-fields-and-closed-vocabularies.md).
 
 ## In the platform
 
@@ -32,8 +32,8 @@ flowchart LR
 | --- | --- |
 | `agent-harness` | The run event stream (`RunEvent`, `RunEventType`, `RunOutcome`); the pause (`Interrupt`, `InterruptReason`, `InterruptDecision`, `InterruptResolution` and its `to_feedback`); its runs client's records (`RunStart`, `RunRecord`, `RunStatus.can_become`, `Schedule`, `ScheduleSpec`); tool types (`ToolSpec`, `ToolCall`, `ToolOutcome`, `ToolStatus`); `AgentExecutionContext`; errors (`AgentError`, `ConfigurationError`, `ToolError`, `ModelError`); `FeedbackVerdict`; the id helpers. Its `trellis.harness.redaction.Redactor` implements `TelemetryRedactor`, asserted in its `tests/contract/test_ports.py`. |
 | `agent-runs` | Its stored and returned shapes: `RunStart` (its create body subclasses it), `RunRecord`, `RunStatus.can_become` (checked under a row lock), `Interrupt` (read back from `awaiting`), `InterruptResolution`, `InterruptDecision`, `Schedule`, `ScheduleSpec`, `AgentError`, `ErrorCategory`, `ArtifactRef`, `ToolCall`, and `now`, `new_id`, `stable_id`. |
-| `agent-memory-service` | Nothing imported. Its `POST /v1/feedback` takes the `Feedback` record unchanged; `AgentExecutionContext.scope_fields()` returns exactly its `Scope` keywords; `OBSERVATION_KINDS` mirrors its `ObservationKind`; `classify()` maps its SDK's exceptions (module `trellis.*`) by class name. |
-| `bifrost-sdk` | Nothing. The harness reaches models through it directly. |
+| `agent-memory-service` | Nothing imported. Its `POST /v1/feedback` takes the `Feedback` record unchanged; `AgentExecutionContext.scope_fields()` returns exactly its `Scope` keywords; `OBSERVATION_KINDS` mirrors its `ObservationKind`; `classify()` maps its SDK's exceptions (module `trellis.*`) by class name, and `AgentError.of` keeps their own `retryable`. |
+| `bifrost-sdk` | Nothing. The harness reaches models through it directly. `classify()` maps its exceptions (module `bifrost_sdk`) by class name, and `AgentError.of` keeps their own `retryable`. |
 
 ## Inside the package
 
@@ -270,7 +270,8 @@ classDiagram
   class AgentError {
     <<frozen>>
     +code, category: ErrorCategory
-    +message, retryable, source, details, trace_id
+    +message, retryable, source: ErrorSource
+    +details, trace_id
     +of(exc, ...)$ AgentError
   }
   AgentRequest --> AgentExecutionContext : context
@@ -474,19 +475,43 @@ classification, and anything else is sorted by `classify()`:
 flowchart TD
   X[exception] --> C{CancelledError?}
   C -- yes --> CAN[CANCELLED]
-  C -- no --> T{TimeoutError?}
-  T -- yes --> TIM[TIMEOUT, retryable]
+  C -- no --> T{"builtin TimeoutError?<br/>(asyncio's is the same class)"}
+  T -- yes --> TIM[TIMEOUT]
   T -- no --> V{ValueError, TypeError, KeyError?}
   V -- yes --> VAL[VALIDATION]
   V -- no --> P{PermissionError?}
   P -- yes --> AUTH[AUTHORIZATION]
-  P -- no --> S{"module trellis.* or httpx.*<br/>and a known class name?"}
-  S -- yes --> MAP["mapped category<br/>(RATE_LIMIT and DEPENDENCY are retryable)"]
-  S -- no --> UNK[UNKNOWN, not retryable]
+  P -- no --> S{"a class in its MRO from trellis,<br/>bifrost_sdk or httpx with a known name?"}
+  S -- yes --> MAP["that name's category, nearest class first<br/>(TimeoutError, TimeoutException: TIMEOUT)"]
+  S -- no --> UNK[UNKNOWN]
 ```
 
-Only `TIMEOUT`, `RATE_LIMIT` and `DEPENDENCY` are retryable by default
+Then whether it is retryable, first answer wins:
+
+```mermaid
+flowchart LR
+  A{"retryable= passed<br/>to AgentError.of?"} -- yes --> USE[that value]
+  A -- no --> O{"exception has a bool<br/>retryable attribute?"}
+  O -- yes --> OWN["the exception's own<br/>(Memory Service SDK, bifrost-sdk)"]
+  O -- no --> CAT{"category in<br/>RETRYABLE_CATEGORIES?"}
+  CAT -- yes --> YES[retryable]
+  CAT -- no --> NO[not retryable]
+```
+
+Only `TIMEOUT`, `RATE_LIMIT` and `DEPENDENCY` are retryable by category
 (`errors.RETRYABLE_CATEGORIES`).
+
+`AgentError.source` is an `ErrorSource`: the component that reported the failure, never the
+exception class (that is `code`). Every value but `memory` is one a sibling repo passes today:
+
+| Source | Set by |
+| --- | --- |
+| `function`, `langgraph`, `openai_agents`, `claude_agent_sdk`, `react` | the harness, for every failed run (the adapter's name) |
+| `tools` | the harness's tool layer (a tool missing from the run, or called outside one) |
+| `mcp` | the harness's Bifrost client, as `mcp.<tool>`: stored as `mcp`, with the tool in `details.source_detail` |
+| `a2a` | the harness's A2A client (a remote agent failed or ended badly) |
+| `memory` | nobody yet: kept for a Memory Service failure (`MemoryUnavailableError`) |
+| `agent-runs` | agent-runs: a lease that lapsed on every attempt, an interrupt nobody answered, a schedule that could not fire |
 
 ## Wire conventions
 
@@ -498,6 +523,14 @@ Only `TIMEOUT`, `RATE_LIMIT` and `DEPENDENCY` are retryable by default
   agent).
 * **Every timestamp on a run, interrupt, event, feedback or schedule is timezone-aware**
   (`AwareDatetime`), and `ids.now()` is UTC.
+* **Every field is described.** Each model field carries a one-line `Field(description=...)`
+  with its unit, format and allowed values, so the JSON Schema (and agent-runs' OpenAPI
+  document) documents every property. `tests/test_field_docs.py` keeps it that way.
+* **Closed vocabularies are typed.** Statuses, reasons, decisions, kinds and verdicts are
+  `StrEnum`s. `ErrorSource`, `ToolSource`, `ObservationKind` and `InterruptUI` are `Literal`s,
+  so a caller's string literal still type-checks. The fields left as `str` on purpose
+  (`ToolSpec.side_effects`, `EvidenceRef.source_type`, the A2A transports, ...) are listed in
+  ADR 0003 with the reason for each.
 * **Payloads that leave the process are unredacted** (`RunEvent.data`,
   `Interrupt.awaiting()`). The surface that sends them out passes them through a
   `TelemetryRedactor`.

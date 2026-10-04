@@ -19,17 +19,20 @@ from trellis.contracts.artifacts import (
     Claim,
     EvidenceRef,
     MemoryObservation,
+    ObservationKind,
     RecommendedAction,
 )
 from trellis.contracts.context import AgentExecutionContext
 from trellis.contracts.descriptors import AgentDescriptor, SkillDescriptor
 from trellis.contracts.errors import (
+    ERROR_SOURCES,
     AgentCancelledError,
     AgentError,
     AgentPaused,
     AgentTimeoutError,
     ConfigurationError,
     ErrorCategory,
+    ErrorSource,
     HarnessError,
     MemoryUnavailableError,
     ModelError,
@@ -65,6 +68,7 @@ from trellis.contracts.runs import (
     InterruptDecision,
     InterruptReason,
     InterruptResolution,
+    InterruptUI,
     RunEvent,
     RunEventType,
     RunOutcome,
@@ -74,12 +78,13 @@ from trellis.contracts.runs import (
     Schedule,
     ScheduleSpec,
 )
-from trellis.contracts.tool import ToolCall, ToolOutcome, ToolSpec, ToolStatus
+from trellis.contracts.tool import ToolCall, ToolOutcome, ToolSource, ToolSpec, ToolStatus
 
 __version__ = _version("trellis-contracts")
 
 __all__ = [
     "A2A_PROTOCOL_VERSION",
+    "ERROR_SOURCES",
     "OBSERVATION_KINDS",
     "AgentCancelledError",
     "AgentCapabilities",
@@ -105,6 +110,7 @@ __all__ = [
     "Claim",
     "ConfigurationError",
     "ErrorCategory",
+    "ErrorSource",
     "EvaluationProvider",
     "EventSink",
     "EvidenceRef",
@@ -117,6 +123,7 @@ __all__ = [
     "InterruptDecision",
     "InterruptReason",
     "InterruptResolution",
+    "InterruptUI",
     "Judge",
     "JudgeMethod",
     "JudgeVerdict",
@@ -128,6 +135,7 @@ __all__ = [
     "ModelRequest",
     "ModelResponse",
     "ModelUsage",
+    "ObservationKind",
     "PolicyDeniedError",
     "RecommendedAction",
     "ResultValidationError",
@@ -148,6 +156,7 @@ __all__ = [
     "ToolError",
     "ToolNotFoundError",
     "ToolOutcome",
+    "ToolSource",
     "ToolSpec",
     "ToolStatus",
     "classify",

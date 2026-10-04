@@ -14,12 +14,24 @@ class ModelUsage(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="allow")
 
-    input_tokens: int | None = None
-    output_tokens: int | None = None
-    total_tokens: int | None = None
-    cached_input_tokens: int | None = None
-    reasoning_tokens: int | None = None
-    cost_usd: float | None = None
+    input_tokens: int | None = Field(
+        default=None, description="Prompt tokens billed; None when not reported."
+    )
+    output_tokens: int | None = Field(
+        default=None, description="Completion tokens billed; None when not reported."
+    )
+    total_tokens: int | None = Field(
+        default=None, description="All tokens billed, as the provider reports it."
+    )
+    cached_input_tokens: int | None = Field(
+        default=None, description="Prompt tokens served from the provider's cache."
+    )
+    reasoning_tokens: int | None = Field(
+        default=None, description="Output tokens spent on reasoning before the answer."
+    )
+    cost_usd: float | None = Field(
+        default=None, description="Cost of the call in US dollars; None when not reported."
+    )
 
     @property
     def tokens(self) -> int | None:
@@ -61,16 +73,37 @@ class ModelRequest(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
-    model: str | None = None
-    provider: str | None = None
-    profile: str | None = None
-    prompt_id: str | None = None
-    prompt_version: str | None = None
-    messages: list[dict[str, Any]] | None = None
-    prompt: str | None = None
-    params: dict[str, Any] = Field(default_factory=dict)
-    tools: list[dict[str, Any]] = Field(default_factory=list)
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    model: str | None = Field(
+        default=None, description="Model to call; None lets the client or profile choose."
+    )
+    provider: str | None = Field(
+        default=None, description="Provider serving the model; None lets the gateway route."
+    )
+    profile: str | None = Field(
+        default=None, description="Named model profile (model plus parameters) to use."
+    )
+    prompt_id: str | None = Field(
+        default=None, description="Id of a managed prompt to render, instead of messages."
+    )
+    prompt_version: str | None = Field(
+        default=None, description="Version of that managed prompt; None for the latest."
+    )
+    messages: list[dict[str, Any]] | None = Field(
+        default=None, description="Chat messages ({role, content} objects) to send."
+    )
+    prompt: str | None = Field(
+        default=None, description="A single text prompt, for a call without messages."
+    )
+    params: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Sampling and provider parameters (temperature, max_tokens...).",
+    )
+    tools: list[dict[str, Any]] = Field(
+        default_factory=list, description="Tool definitions the model may call, as JSON."
+    )
+    metadata: dict[str, Any] = Field(
+        default_factory=dict, description="Free-form JSON object for tracing and routing."
+    )
 
 
 class ModelResponse(BaseModel):
@@ -78,17 +111,33 @@ class ModelResponse(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
-    text: str | None = None
-    data: Any = None
-    raw: Any = None
-    model: str | None = None
-    provider: str | None = None
-    finish_reason: str | None = None
-    usage: ModelUsage | None = None
-    tool_calls: list[dict[str, Any]] = Field(default_factory=list)
-    fallback_used: bool = False
-    artifacts: list[ArtifactRef] = Field(default_factory=list)
-    latency_ms: float | None = None
+    text: str | None = Field(default=None, description="The text the model returned.")
+    data: Any = Field(
+        default=None, description="Structured output, or the provider response when not text."
+    )
+    raw: Any = Field(default=None, description="The provider's response object, unchanged.")
+    model: str | None = Field(default=None, description="Model that answered.")
+    provider: str | None = Field(default=None, description="Provider that served it.")
+    finish_reason: str | None = Field(
+        default=None,
+        description="Why generation stopped, in the provider's words.",
+        examples=["stop", "length", "tool_calls"],
+    )
+    usage: ModelUsage | None = Field(
+        default=None, description="Token and cost accounting; None when not reported."
+    )
+    tool_calls: list[dict[str, Any]] = Field(
+        default_factory=list, description="Tool calls the model requested, as JSON."
+    )
+    fallback_used: bool = Field(
+        default=False, description="Whether a fallback model answered instead of the first."
+    )
+    artifacts: list[ArtifactRef] = Field(
+        default_factory=list, description="Large outputs passed by reference."
+    )
+    latency_ms: float | None = Field(
+        default=None, description="Wall-clock duration of the call in milliseconds."
+    )
 
     @classmethod
     def coerce(cls, value: Any, *, request: ModelRequest | None = None) -> ModelResponse:

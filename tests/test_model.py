@@ -4,7 +4,7 @@ it reports, and what a tool is, is called with and returns."""
 from __future__ import annotations
 
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, get_args
 
 import pytest
 from pydantic import ValidationError
@@ -16,6 +16,7 @@ from trellis.contracts import (
     ModelUsage,
     ToolCall,
     ToolOutcome,
+    ToolSource,
     ToolSpec,
     ToolStatus,
 )
@@ -216,6 +217,17 @@ def test_a_tool_spec_defaults_to_a_local_tool_with_unknown_side_effects() -> Non
         False,
     )
     assert spec.descriptor()["input_schema"] is None
+
+
+@pytest.mark.parametrize("source", get_args(ToolSource))
+def test_every_tool_source_the_harness_builds_is_accepted(source: str) -> None:
+    assert ToolSpec(name="t", source=source).source == source  # type: ignore[arg-type]
+
+
+def test_a_tool_source_outside_the_vocabulary_is_refused() -> None:
+    """A typo (``MCP``, ``gateway``) would silently miss every ``source == "mcp"`` branch."""
+    with pytest.raises(ValidationError, match="local"):
+        ToolSpec(name="t", source="gateway")  # type: ignore[arg-type]
 
 
 def test_a_tool_call_names_the_tool_and_is_frozen() -> None:

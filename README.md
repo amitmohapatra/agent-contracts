@@ -108,10 +108,10 @@ assert event.data["interrupt"]["options"] == ["Acme", "Globex"]
 | return a result from an agent | `AgentResponse.ok(data)`, `AgentResponse.failed(error)`, or `AgentResponse.coerce(anything)` to wrap an existing return value |
 | say where an answer came from | `Claim` with `evidence_ids`, plus `EvidenceRef`s on `AgentResponse.evidence` |
 | return something too large for the result | `ArtifactClient.put(...)`, which returns an `ArtifactRef` |
-| ask the Memory Service to remember something | `MemoryObservation`, whose `kind` must be one of `OBSERVATION_KINDS` |
+| ask the Memory Service to remember something | `MemoryObservation`, whose `kind` must be one of `OBSERVATION_KINDS` (the `ObservationKind` literal) |
 | propose a next step instead of calling another agent | `RecommendedAction` |
 | report a non-fatal problem | `response.add_warning(code, message, **details)`, which adds an `AgentWarning` |
-| fail in a way callers can branch on | raise a `HarnessError` subclass; turn any exception into an `AgentError` with `AgentError.of(exc)` |
+| fail in a way callers can branch on | raise a `HarnessError` subclass; turn any exception into an `AgentError` with `AgentError.of(exc, source=...)`, where `source` is an `ErrorSource` |
 | ask a person something in the middle of a run | raise `AgentPaused(question)` in the agent; the harness turns it into an `Interrupt` with `Interrupt.from_paused` |
 | get a tool call approved before it runs | `Interrupt(reason=InterruptReason.APPROVAL, tool_call=ToolCall(...))` |
 | record how a person answered | `InterruptResolution`; for an approve, reject or edit of a tool call, `resolution.to_feedback(interrupt, ctx)` gives the matching `Feedback` |
@@ -156,6 +156,7 @@ Every name below is in `trellis.contracts.__all__` and importable from `trellis.
 | `Claim` | One assertion an agent made, with the ids of its evidence |
 | `RecommendedAction` | A next step the agent proposes, with a short rationale |
 | `MemoryObservation` | Something the agent wants remembered. Its `kind` is checked against `OBSERVATION_KINDS` |
+| `ObservationKind` | The `kind` literal: `MESSAGE`, `FILE`, `AGENT_RESULT`, `TOOL_RESULT`, `DECISION`, `FEEDBACK`, `EVENT`, `IMPORT` |
 | `AgentWarning` | A non-fatal problem the caller should see |
 | `OBSERVATION_KINDS` | The observation kinds the Memory Service accepts |
 
@@ -167,6 +168,7 @@ Every name below is in `trellis.contracts.__all__` and importable from `trellis.
 | `ToolCall` | One call: the tool, its arguments, and an optional idempotency key |
 | `ToolOutcome` | The normalised result of a call. Assignments are validated |
 | `ToolStatus` | `ok`, `error`, `timeout`, `rejected`, `cancelled`. It is a `StrEnum`, so `outcome.status == "ok"` holds |
+| `ToolSource` | Where a tool comes from, `ToolSpec.source`: `local`, `mcp`, `memory`, `openapi`, `a2a` |
 
 ### `model`
 
@@ -180,9 +182,11 @@ Every name below is in `trellis.contracts.__all__` and importable from `trellis.
 
 | Name | What it is |
 | --- | --- |
-| `AgentError` | A normalised, serialisable failure with `category` and `retryable`. `AgentError.of(exc)` builds one from any exception |
+| `AgentError` | A normalised, serialisable failure with `category`, `retryable` and `source`. `AgentError.of(exc)` builds one from any exception, keeping the exception's own `retryable` when it has one |
 | `ErrorCategory` | The closed set of failure categories |
-| `classify` | Best-effort category for any exception, including Memory Service SDK and `httpx` errors matched by name |
+| `ErrorSource` | The components that report failures, `AgentError.source`: `agent-runs`, `tools`, `mcp`, `a2a`, `memory` and the harness's adapters (`function`, `langgraph`, `openai_agents`, `claude_agent_sdk`, `react`). A qualified `mcp.<tool>` is stored as `mcp` with the tool in `details.source_detail` |
+| `ERROR_SOURCES` | `ErrorSource` as a set |
+| `classify` | Best-effort category for any exception, including Memory Service SDK, bifrost-sdk and `httpx` errors matched by class name (nearest class first). Every timeout is `TIMEOUT` |
 | `AgentPaused` | Raised by an agent to suspend the run and ask a person something. It is not an error |
 | `HarnessError` | Base of the failures a harness raises. Each subclass carries its own `code`, `category` and `retryable` |
 | `ConfigurationError` | A misconfiguration (`VALIDATION`) |
@@ -210,6 +214,7 @@ and LangGraph's suspend signals by class name, and `RETRYABLE_CATEGORIES`.
 | `RunOutcome` | How a run finished, as `RUN_FINISHED` reports it. `from_status` maps a settled status to it |
 | `Interrupt` | The record of a paused run: the question, the expected answer shape, the UI hint, options, payload, the tool call under approval, the assignee, the deadline and the escalation |
 | `InterruptReason` | `QUESTION`, `APPROVAL`, `REVIEW`, `CHOICE`, `AUTH` |
+| `InterruptUI` | The control a surface renders, `Interrupt.ui`: `approve`, `form`, `table`, `diff`, `choice` |
 | `InterruptResolution` | How an interrupt was answered. `resolves` checks it answers that interrupt, and `to_feedback` gives the feedback for a tool-call decision |
 | `InterruptDecision` | `ANSWER`, `APPROVE`, `REJECT`, `EDIT`, `CANCEL` |
 | `ScheduleSpec` | A standing intent: which agent, what input, which cadence and timezone, on whose behalf |
@@ -324,6 +329,12 @@ rejected at the far end of an HTTP call.
   (`RunRecord`, `Schedule`) or from another agent (`AgentCard`) **ignores** unknown fields, so
   a newer peer does not break an older reader.
 * **Every timestamp on a run, interrupt, event, feedback or schedule is timezone-aware.**
+* **Every field is documented.** Each model field has a one-line `Field(description=...)`
+  (units, formats, allowed values), so agent-runs' OpenAPI document describes every property.
+  `tests/test_field_docs.py` fails on a field without one.
+* **Closed vocabularies are typed**: statuses, kinds and decisions are `StrEnum`s, and
+  `ErrorSource`, `ToolSource`, `ObservationKind` and `InterruptUI` are `Literal`s, so a typo
+  is a validation error. ADR 0003 lists the `str` fields left open on purpose.
 * **Payloads that leave the process are unredacted** (`RunEvent.data`,
   `Interrupt.awaiting()`). The surface that sends them passes them through a
   `TelemetryRedactor`.
@@ -348,8 +359,10 @@ it merely installs.
 | Python | `>=3.12` | `StrEnum`, PEP 695 generics |
 
 The design decisions are in `docs/adr`: [0001](docs/adr/0001-contracts-v2.md) (runs, events,
-interrupts, feedback, judging and agent cards) and [0002](docs/adr/0002-contracts-v3.md)
-(queued runs, richer interrupts, schedules, and the ports that were removed).
+interrupts, feedback, judging and agent cards), [0002](docs/adr/0002-contracts-v3.md)
+(queued runs, richer interrupts, schedules, and the ports that were removed) and
+[0003](docs/adr/0003-documented-fields-and-closed-vocabularies.md) (field descriptions,
+`ErrorSource` and the other literals, and how `AgentError.of` reads SDK errors).
 
 ## Development
 

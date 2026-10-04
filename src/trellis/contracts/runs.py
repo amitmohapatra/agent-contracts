@@ -97,18 +97,50 @@ class RunStart(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    run_id: str = Field(default_factory=lambda: new_id("run_"))
-    tenant_id: str
-    agent_id: str
-    parent_run_id: str | None = None
-    thread_id: str | None = None
-    user_id: str | None = None
-    workspace_id: str | None = None
-    on_behalf_of: str | None = None
-    input: Any = None
-    deadline: AwareDatetime | None = None
-    idempotency_key: str | None = None
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    run_id: str = Field(
+        default_factory=lambda: new_id("run_"),
+        description="Run id: the caller's context agent_run_id, or 'run_' plus 32 hex "
+        "characters minted here.",
+        examples=["run_4be0643f1d98573b97cdcfd8884e2d4f"],
+    )
+    tenant_id: str = Field(description="Tenant that owns the run; every read is scoped to it.")
+    agent_id: str = Field(
+        description="Id of the agent that executes the run.", examples=["refunds"]
+    )
+    parent_run_id: str | None = Field(
+        default=None,
+        description="Run that started this one as a nested agent run; None for a top-level run.",
+    )
+    thread_id: str | None = Field(
+        default=None, description="Conversation thread the run belongs to; None outside one."
+    )
+    user_id: str | None = Field(
+        default=None, description="End user the run serves; None when there is none."
+    )
+    workspace_id: str | None = Field(
+        default=None, description="Workspace within the tenant; None when unused."
+    )
+    on_behalf_of: str | None = Field(
+        default=None,
+        description="Principal a scheduled run acts for, fixed when the schedule was made; "
+        "None for a run somebody started.",
+        examples=["user:u1"],
+    )
+    input: Any = Field(default=None, description="The agent's input, any JSON value, as given.")
+    deadline: AwareDatetime | None = Field(
+        default=None,
+        description="Absolute time the run must end by (ISO 8601, timezone-aware); None for "
+        "no deadline.",
+    )
+    idempotency_key: str | None = Field(
+        default=None,
+        description="Key that makes a retried start return the same run instead of a second "
+        "one; from_request derives it from the context.",
+    )
+    metadata: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Free-form JSON object kept with the run; the contract never reads it.",
+    )
 
     @classmethod
     def from_request(cls, request: AgentRequest) -> Self:
@@ -147,6 +179,10 @@ class InterruptReason(StrEnum):
     AUTH = "AUTH"
 
 
+#: The control a surface renders for an interrupt.
+InterruptUI = Literal["approve", "form", "table", "diff", "choice"]
+
+
 class Interrupt(BaseModel):
     """The framework-neutral record of a paused run: what is asked, what shape an answer
     takes, what the UI needs, who must answer by when, and the tool call under approval when
@@ -160,21 +196,70 @@ class Interrupt(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    interrupt_id: str = Field(default_factory=lambda: new_id("int_"))
-    tenant_id: str
-    run_id: str
-    reason: InterruptReason = InterruptReason.QUESTION
-    question: str
-    ui: Literal["approve", "form", "table", "diff", "choice"] = "approve"
-    expects: dict[str, Any] | None = None
-    options: list[str] = Field(default_factory=list)
-    payload: dict[str, Any] | None = None
-    payload_ref: ArtifactRef | None = None
-    tool_call: ToolCall | None = None
-    assignee: str | None = None
-    deadline: AwareDatetime | None = None
-    escalate_to: str | None = None
-    created_at: AwareDatetime = Field(default_factory=now)
+    interrupt_id: str = Field(
+        default_factory=lambda: new_id("int_"),
+        description="Interrupt id, 'int_' plus 32 hex characters unless given.",
+        examples=["int_9a1c6f2e0b7d4e8f9a1c6f2e0b7d4e8f"],
+    )
+    tenant_id: str = Field(description="Tenant of the paused run; must equal the run's.")
+    run_id: str = Field(description="Id of the paused run.")
+    reason: InterruptReason = Field(
+        default=InterruptReason.QUESTION,
+        description="Why the run stopped to ask. APPROVAL carries tool_call, CHOICE carries "
+        "options, REVIEW carries expects.",
+    )
+    question: str = Field(
+        description="What the person is asked, shown as is; must not be blank.",
+        examples=["Approve a EUR 240 refund for order 91?"],
+    )
+    ui: InterruptUI = Field(
+        default="approve",
+        description="Control a surface renders: approve (yes/no), form (fields shaped by "
+        "expects), table, diff, or choice (one of options).",
+    )
+    expects: dict[str, Any] | None = Field(
+        default=None,
+        description="JSON Schema of an acceptable answer, so a UI renders a control rather "
+        "than a text box; required for REVIEW.",
+        examples=[{"type": "boolean"}],
+    )
+    options: list[str] = Field(
+        default_factory=list,
+        description="Choices offered, in display order; required (non-empty) for CHOICE.",
+    )
+    payload: dict[str, Any] | None = Field(
+        default=None,
+        description="Extra data the UI needs to show the question (JSON object, unredacted).",
+    )
+    payload_ref: ArtifactRef | None = Field(
+        default=None,
+        description="Reference to data too large to travel with the question (a table, a "
+        "diff), stored as a run artifact.",
+    )
+    tool_call: ToolCall | None = Field(
+        default=None, description="The tool call under approval; required for APPROVAL."
+    )
+    assignee: str | None = Field(
+        default=None,
+        description="Principal who must answer, as kind:id; inboxes filter on it. None when "
+        "unassigned.",
+        examples=["user:u1", "role:procurement"],
+    )
+    deadline: AwareDatetime | None = Field(
+        default=None,
+        description="When an answer is due (ISO 8601, timezone-aware); past it the run goes "
+        "to escalate_to, or times out. None for no deadline.",
+    )
+    escalate_to: str | None = Field(
+        default=None,
+        description="Principal the interrupt passes to once deadline has passed, as kind:id; "
+        "requires deadline.",
+        examples=["role:finance-lead"],
+    )
+    created_at: AwareDatetime = Field(
+        default_factory=now,
+        description="When the run paused (ISO 8601, timezone-aware; UTC unless given).",
+    )
 
     @field_validator("question")
     @classmethod
@@ -252,13 +337,30 @@ class InterruptResolution(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    interrupt_id: str
-    run_id: str
-    decision: InterruptDecision
-    answer: Any = None
-    reviewer: str | None = None
-    payload: dict[str, Any] | None = None
-    resolved_at: AwareDatetime = Field(default_factory=now)
+    interrupt_id: str = Field(description="Id of the interrupt being answered.")
+    run_id: str = Field(description="Id of the paused run; must be the interrupt's run_id.")
+    decision: InterruptDecision = Field(
+        description="What was decided. EDIT carries the edited arguments in payload."
+    )
+    answer: Any = Field(
+        default=None,
+        description="The answer to a question, any JSON value shaped by the interrupt's "
+        "expects; None for a decision about a tool call.",
+    )
+    reviewer: str | None = Field(
+        default=None,
+        description="Principal who decided, as kind:id; carried into the feedback record.",
+        examples=["user:u1"],
+    )
+    payload: dict[str, Any] | None = Field(
+        default=None,
+        description="For EDIT, the tool call's edited arguments (required, non-empty); "
+        "otherwise optional extra data.",
+    )
+    resolved_at: AwareDatetime = Field(
+        default_factory=now,
+        description="When it was answered (ISO 8601, timezone-aware; UTC unless given).",
+    )
 
     @model_validator(mode="after")
     def _an_edit_says_what_changed(self) -> Self:
@@ -323,15 +425,46 @@ class RunRecord(RunStart):
 
     model_config = ConfigDict(frozen=True, extra="ignore")
 
-    status: RunStatus = RunStatus.RUNNING
-    output: Any = None
-    error: AgentError | None = None
-    awaiting: Interrupt | None = None
-    last_resolution: InterruptResolution | None = None
-    checkpoint: dict[str, Any] | None = None
-    attempt: int = Field(default=1, ge=1)
-    created_at: AwareDatetime = Field(default_factory=now)
-    updated_at: AwareDatetime = Field(default_factory=now)
+    status: RunStatus = Field(
+        default=RunStatus.RUNNING,
+        description="Where the run is; PAUSED exactly when awaiting is set.",
+    )
+    output: Any = Field(
+        default=None,
+        description="What the agent returned, any JSON value; None until it has returned.",
+    )
+    error: AgentError | None = Field(
+        default=None,
+        description="Why the run failed; only on ERROR, TIMEOUT and REJECTED, None otherwise.",
+    )
+    awaiting: Interrupt | None = Field(
+        default=None,
+        description="The interrupt a PAUSED run waits on, for the same run and tenant; None "
+        "for any other status.",
+    )
+    last_resolution: InterruptResolution | None = Field(
+        default=None,
+        description="How the most recent interrupt was answered; None until one has been.",
+    )
+    checkpoint: dict[str, Any] | None = Field(
+        default=None,
+        description="Opaque executor state (resume journal) written with a pause and "
+        "returned on read and claim; never on a final run. Size bounded by the service.",
+    )
+    attempt: int = Field(
+        default=1,
+        ge=1,
+        description="1-based attempt number; one more each time the run resumes or is "
+        "re-queued after a lapsed lease.",
+    )
+    created_at: AwareDatetime = Field(
+        default_factory=now,
+        description="When the run was created (ISO 8601, timezone-aware; UTC unless given).",
+    )
+    updated_at: AwareDatetime = Field(
+        default_factory=now,
+        description="When the record last changed (ISO 8601, timezone-aware; UTC unless given).",
+    )
 
     @model_validator(mode="after")
     def _status_and_payloads_agree(self) -> Self:
@@ -448,20 +581,57 @@ class RunEvent(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    event_id: str = Field(default_factory=lambda: new_id("evt_"))
-    type: RunEventType
-    tenant_id: str
-    run_id: str
-    sequence: int = Field(ge=0)
-    attempt: int = Field(default=1, ge=1)
-    thread_id: str | None = None
-    timestamp: AwareDatetime = Field(default_factory=now)
-    step: str | None = None
-    message_id: str | None = None
-    tool_call_id: str | None = None
-    outcome: RunOutcome | None = None
-    error: AgentError | None = None
-    data: dict[str, Any] = Field(default_factory=dict)
+    event_id: str = Field(
+        default_factory=lambda: new_id("evt_"),
+        description="Event id, 'evt_' plus 32 hex characters unless given.",
+    )
+    type: RunEventType = Field(
+        description="Event type: AG-UI's spelling, plus the platform's CONTEXT_LOADED and "
+        "INTERRUPT."
+    )
+    tenant_id: str = Field(description="Tenant of the run; what a hub fans events out by.")
+    run_id: str = Field(description="Id of the run that emitted the event.")
+    sequence: int = Field(
+        ge=0,
+        description="0-based position within the run's attempt; sinks order and dedupe on "
+        "run_id, attempt and sequence.",
+    )
+    attempt: int = Field(
+        default=1, ge=1, description="1-based attempt of the run that emitted the event."
+    )
+    thread_id: str | None = Field(
+        default=None, description="Conversation thread of the run; None outside one."
+    )
+    timestamp: AwareDatetime = Field(
+        default_factory=now,
+        description="When the event was emitted (ISO 8601, timezone-aware; UTC unless given).",
+    )
+    step: str | None = Field(
+        default=None,
+        description="Name of the step a STEP_STARTED or STEP_FINISHED event marks; None for "
+        "other events.",
+    )
+    message_id: str | None = Field(
+        default=None,
+        description="Message the text belongs to; required on TEXT_MESSAGE_* events.",
+    )
+    tool_call_id: str | None = Field(
+        default=None,
+        description="Tool call the event belongs to; required on TOOL_CALL_* events.",
+    )
+    outcome: RunOutcome | None = Field(
+        default=None,
+        description="How the run finished; required on RUN_FINISHED and refused on any other type.",
+    )
+    error: AgentError | None = Field(
+        default=None,
+        description="The failure a RUN_ERROR or a failed RUN_FINISHED reports; None otherwise.",
+    )
+    data: dict[str, Any] = Field(
+        default_factory=dict,
+        description="The type's payload as a surface renders it (text delta, tool arguments, "
+        "state patch, the interrupt); unredacted JSON object.",
+    )
 
     @model_validator(mode="after")
     def _the_type_and_its_payload_agree(self) -> Self:
@@ -577,16 +747,40 @@ class ScheduleSpec(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    tenant_id: str
-    agent_id: str
-    name: str = Field(max_length=200)
-    cadence: str
-    timezone: str = "UTC"
-    on_behalf_of: str
-    input: Any = None
-    workspace_id: str | None = None
-    enabled: bool = True
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    tenant_id: str = Field(description="Tenant that owns the schedule.")
+    agent_id: str = Field(description="Id of the agent each fire starts a run of.")
+    name: str = Field(
+        max_length=200,
+        description="Human-readable label, 1 to 200 characters, trimmed.",
+        examples=["Weekday supplier digest"],
+    )
+    cadence: str = Field(
+        description="When it fires: a cron expression or a named bucket (hourly, daily, "
+        "weekly, weekdays, manual), evaluated in timezone.",
+        examples=["0 8 * * 1-5", "daily", "manual"],
+    )
+    timezone: str = Field(
+        default="UTC",
+        description="IANA time zone the cadence is evaluated in.",
+        examples=["UTC", "Europe/Berlin"],
+    )
+    on_behalf_of: str = Field(
+        description="Principal every fired run acts for, never wider; not blank.",
+        examples=["user:u1"],
+    )
+    input: Any = Field(
+        default=None, description="Input each fired run starts with, any JSON value."
+    )
+    workspace_id: str | None = Field(
+        default=None, description="Workspace within the tenant; None when unused."
+    )
+    enabled: bool = Field(
+        default=True, description="Whether it fires; a disabled schedule is kept but skipped."
+    )
+    metadata: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Free-form JSON object kept with the schedule; the contract never reads it.",
+    )
 
     @field_validator("name", "cadence", "on_behalf_of")
     @classmethod
@@ -618,16 +812,51 @@ class Schedule(ScheduleSpec):
 
     model_config = ConfigDict(frozen=True, extra="ignore")
 
-    schedule_id: str = Field(default_factory=lambda: new_id("sch_"))
-    created_by: str | None = None
-    next_fire_at: AwareDatetime | None = None
-    last_fired_at: AwareDatetime | None = None
-    last_run_id: str | None = None
-    consecutive_failures: int = Field(default=0, ge=0)
-    last_error: dict[str, Any] | None = None
-    retry_after: AwareDatetime | None = None
-    created_at: AwareDatetime = Field(default_factory=now)
-    updated_at: AwareDatetime = Field(default_factory=now)
+    schedule_id: str = Field(
+        default_factory=lambda: new_id("sch_"),
+        description="Schedule id, 'sch_' plus 32 hex characters unless given.",
+    )
+    created_by: str | None = Field(
+        default=None,
+        description="Principal whose credential created the schedule, set by the service "
+        "from that credential, never by the caller.",
+    )
+    next_fire_at: AwareDatetime | None = Field(
+        default=None,
+        description="Next time it is due (ISO 8601, timezone-aware); None when nothing is "
+        "due (a manual cadence).",
+    )
+    last_fired_at: AwareDatetime | None = Field(
+        default=None,
+        description="Occurrence the last successful fire was for (ISO 8601, timezone-aware); "
+        "None before the first.",
+    )
+    last_run_id: str | None = Field(
+        default=None, description="Id of the run the last successful fire queued."
+    )
+    consecutive_failures: int = Field(
+        default=0,
+        ge=0,
+        description="Fires in a row that could not queue a run (not runs that failed); reset "
+        "to 0 by a successful fire.",
+    )
+    last_error: dict[str, Any] | None = Field(
+        default=None,
+        description="The last fire failure as a JSON AgentError; None after a successful fire.",
+    )
+    retry_after: AwareDatetime | None = Field(
+        default=None,
+        description="A retryable fire failure is not retried before this time (ISO 8601, "
+        "timezone-aware); None when not backing off.",
+    )
+    created_at: AwareDatetime = Field(
+        default_factory=now,
+        description="When the schedule was created (ISO 8601, timezone-aware; UTC unless given).",
+    )
+    updated_at: AwareDatetime = Field(
+        default_factory=now,
+        description="When the record last changed (ISO 8601, timezone-aware; UTC unless given).",
+    )
 
     @classmethod
     def from_spec(cls, spec: ScheduleSpec, **fields: Any) -> Self:
