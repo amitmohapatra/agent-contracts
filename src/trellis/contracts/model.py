@@ -76,7 +76,7 @@ class ModelRequest(BaseModel):
 class ModelResponse(BaseModel):
     """The normalized result of a model call. ``raw`` keeps the provider object for callers."""
 
-    model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
+    model_config = ConfigDict(extra="allow")
 
     text: str | None = None
     data: Any = None

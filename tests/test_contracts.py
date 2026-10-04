@@ -55,7 +55,6 @@ ALLOWED = {
     "time",
     "math",
     "asyncio",
-    "builtins",
 }
 
 

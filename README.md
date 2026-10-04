@@ -2,311 +2,70 @@
 
 The types an agent must accept and return. No runtime, no transport, no I/O.
 
-Every other repo in the platform depends on this one, and this one depends on nothing but
-`pydantic`. That is the point: the contract can be read, versioned and reasoned about
-without pulling in a gateway, a database or an agent framework.
+The platform's agent harness (`agent-harness`) and run service (`agent-runs`) build on this
+package. It depends on nothing but `pydantic`, and that is the point: the contract can be read,
+versioned and reasoned about without pulling in a gateway, a database or an agent framework.
+It is importable as `trellis.contracts`.
 
-## What is in here
-
-| Module | What it defines |
-| --- | --- |
-| `messages` | `AgentRequest`, `AgentResponse`, `AgentStatus`: the two ends of one execution |
-| `context` | `AgentExecutionContext`: tenant, user, thread, agent, run lineage, and `scope_fields()`, the exact keyword arguments the Memory Service expects |
-| `artifacts` | What an execution produces on the way: artifact and evidence references, claims, recommended actions, memory observations, warnings |
-| `tool` | `ToolSpec`, `ToolCall`, `ToolOutcome`, `ToolStatus` |
-| `model` | `ModelRequest`, `ModelResponse`, `ModelUsage` |
-| `errors` | The typed failures a caller can branch on, `AgentPaused`, and `classify()` |
-| `events` | `AgentEvalEvent`, what a judge scores a finished run from |
-| `descriptors` | `AgentDescriptor`, `SkillDescriptor` |
-| `runs` | `RunStart`, `RunRecord`, `RunStatus`, the `RunEvent` stream, `Interrupt` and `InterruptResolution`, `ScheduleSpec` and `Schedule` |
-| `feedback` | `Feedback` with its target kinds, verdicts and sources |
-| `evaluation` | `JudgeVerdict`, `JudgeMethod` |
-| `a2a` | `AgentCard` and its parts, mapped from `AgentDescriptor` |
-| `ports` | Every outbound dependency as a Protocol: model, tool, artifact, memory, telemetry, redaction, evaluation, policy, event sink, run store, judge, agent directory, interceptor |
-| `ids` | `new_id`, `stable_id`, `safe_id`, `now` |
-
-## The shape of it
-
-Two halves. **Records** travel between processes — a request, a result, a run event, a pause, a
-judgement. **Ports** are the outbound dependencies, as `Protocol`s, so a harness can be built
-against the seam and a service swapped behind it.
-
-```mermaid
-classDiagram
-  direction LR
-  class AgentExecutionContext {
-    +tenant_id, workspace_id, user_id
-    +thread_id, session_id, turn_id
-    +agent_id, agent_run_id, parent_agent_run_id
-    +request_id, correlation_id, trace_id, deadline
-    +create(...) AgentExecutionContext
-    +for_agent(agent_id) AgentExecutionContext
-    +scope_fields() dict
-    +idempotency_key(*parts) str
-  }
-  class AgentRequest {
-    +request_id, objective, input
-    +skills_requested, constraints, metadata
-  }
-  class AgentResponse {
-    +status: AgentStatus
-    +data, error, warnings, metrics
-    +claims, evidence, artifacts
-    +memory_observations, recommended_actions
-    +succeeded
-  }
-  class RunStart {
-    +run_id, tenant_id, agent_id, workspace_id
-    +on_behalf_of, input, deadline
-    +idempotency_key
-  }
-  class RunRecord {
-    +status: RunStatus
-    +awaiting: Interrupt
-    +last_resolution: InterruptResolution
-    +checkpoint: opaque executor state
-    +attempt
-    +from_start(start, status) RunRecord
-  }
-  class RunEvent {
-    +type: RunEventType
-    +sequence, run_id, tenant_id
-    +outcome: RunOutcome
-  }
-  class Interrupt {
-    +interrupt_id, run_id, question
-    +reason: InterruptReason
-    +ui, expects, options
-    +payload, payload_ref, tool_call
-    +assignee, deadline, escalate_to
-    +awaiting() dict
-  }
-  class InterruptResolution {
-    +decision: InterruptDecision
-    +answer, payload
-  }
-  class Feedback {
-    +target_kind: FeedbackTargetKind
-    +verdict: FeedbackVerdict
-    +source: FeedbackSource
-    +correction, score, reviewer
-  }
-  class JudgeVerdict {
-    +method: JudgeMethod
-    +score, label, rationale
-    +as_feedback() Feedback
-  }
-  class AgentDescriptor {
-    +agent_id, version
-    +skills: SkillDescriptor[]
-  }
-  class AgentCard {
-    +name, description, url
-    +protocol_version
-    +capabilities, skills, interfaces
-  }
-  class ScheduleSpec {
-    +tenant_id, agent_id, name
-    +cadence, timezone, on_behalf_of
-    +input, workspace_id, enabled
-  }
-  class Schedule {
-    +schedule_id, created_by
-    +next_fire_at, last_fired_at, last_run_id
-    +consecutive_failures, last_error, retry_after
-  }
-
-  AgentRequest --> AgentExecutionContext
-  RunStart --> AgentExecutionContext : from_request
-  RunRecord --|> RunStart
-  RunRecord --> Interrupt : awaiting
-  RunRecord --> InterruptResolution : last_resolution
-  RunEvent --> Interrupt
-  InterruptResolution --> Interrupt : interrupt_id
-  Interrupt ..> Feedback : an approval is also feedback
-  JudgeVerdict ..> Feedback : as_feedback()
-  AgentDescriptor ..> AgentCard : mapped
-  Schedule --|> ScheduleSpec
-```
-
-The ports, all of them, in one picture:
-
-```mermaid
-classDiagram
-  direction LR
-  class ModelClient {
-    <<Protocol>>
-    invoke()
-    structured()
-    stream()
-  }
-  class ToolClient {
-    <<Protocol>>
-    list_tools()
-    call()
-  }
-  class ArtifactClient {
-    <<Protocol>>
-    put()
-    get()
-  }
-  class MemoryPort {
-    <<Protocol>>
-    retrieve()
-    observe()
-    record_input()
-    record_output()
-    describe()
-  }
-  class TelemetryProvider {
-    <<Protocol>>
-    start_span()
-    record_event()
-    record_metric()
-    flush()
-  }
-  class TelemetryRedactor {
-    <<Protocol>>
-    redact_attributes()
-    redact_input()
-    redact_output()
-  }
-  class EvaluationProvider {
-    <<Protocol>>
-    score()
-    submit_dataset_item()
-  }
-  class AgentPolicyProvider {
-    <<Protocol>>
-    authorize_execution()
-    authorize_tool()
-    authorize_model()
-  }
-  class EventSink {
-    <<Protocol>>
-    publish(RunEvent)
-  }
-  class RunStore {
-    <<Protocol>>
-    queued()
-    started()
-    paused()
-    resumed()
-    finished()
-    get()
-    list_paused()
-  }
-  class Judge {
-    <<Protocol>>
-    judge()
-  }
-  class AgentDirectory {
-    <<Protocol>>
-    get()
-    find()
-    publish()
-  }
-  class AgentInterceptor {
-    <<Protocol>>
-    before()
-    after()
-    on_error()
-  }
-```
-
-Each is a `Protocol`, so an implementation conforms by shape and nothing imports a base class from
-here. `trellis-harness`'s `tests/contract/test_ports.py` asserts each of its adapters against the
-protocol it claims.
-
-## A run's lifecycle
-
-`RunStatus.can_become(target)` is the one transition check; a run store refuses anything else.
-
-```mermaid
-stateDiagram-v2
-  [*] --> QUEUED : RunStore.queued
-  [*] --> RUNNING : RunStore.started
-  QUEUED --> RUNNING : a worker claims it
-  RUNNING --> QUEUED : the worker's lease lapsed
-  RUNNING --> PAUSED : Interrupt
-  PAUSED --> RUNNING : resumed in process
-  PAUSED --> QUEUED : resumed for a worker
-  QUEUED --> CANCELLED
-  QUEUED --> TIMEOUT
-  PAUSED --> CANCELLED
-  PAUSED --> TIMEOUT : past the deadline, nobody to escalate to
-  RUNNING --> SUCCESS
-  RUNNING --> PARTIAL
-  RUNNING --> ERROR
-  RUNNING --> REJECTED
-  RUNNING --> CANCELLED
-  RUNNING --> TIMEOUT
-```
-
-A paused run waits on exactly one `Interrupt`: a `QUESTION`, an `APPROVAL` (carries the tool
-call), a `REVIEW` (carries in `expects` what a correction looks like), a `CHOICE` (carries its
-`options`) or an `AUTH`. `assignee` is who answers (`user:u1`, `role:procurement`); past
-`deadline` the run goes to `escalate_to`, or times out when nobody is named.
-
-The executor pauses with an opaque `checkpoint` (`RunStore.paused(interrupt, checkpoint=)`):
-its resume journal and the framework's own resume state. The record returns it on every read
-and claim, so another worker resumes without repeating side effects; finishing clears it.
-
-## Versions, and what goes with what
-
-The packages move together; a combination is "supported" when a test run exercised it, not when it
-merely installs.
-
-| Package | Version | Notes |
-|---|---|---|
-| `trellis-contracts` | **0.4.0** | this package: contracts v3 (ADR 0002) — queued runs, richer interrupts, the schedule fields agent-runs keeps, and only the ports something implements |
-| `trellis-harness` | **0.4.0** | moves to contracts 0.4.0 in the same change set |
-| `trellis-memory` (Memory Service SDK) | **0.3.0** | what the harness's memory port is written against |
-| `pydantic` | `>=2.13,<3` | the only runtime dependency |
-| Python | `>=3.12` | `StrEnum`, PEP 695 generics |
-
-Two wire conventions worth knowing when reading the records:
-
-* **What the platform writes and streams refuses unknown fields** — `RunStart`, `RunEvent`,
-  `Interrupt`, `InterruptResolution`, `Feedback`, `JudgeVerdict`, `ScheduleSpec` — so a producer's
-  typo is an error rather than a silently dropped field. What is *read back* from a store
-  (`RunRecord`, `Schedule`) or from another agent (`AgentCard`) **ignores** them, so a newer peer
-  does not break an older reader.
-* **Every timestamp is timezone-aware.**
-
-`A2A_PROTOCOL_VERSION` is `"1.0"`, the protocol `a2a-sdk` 1.x speaks; `trellis-harness`'s
-compatibility tests pin it against the SDK's `PROTOCOL_VERSION_CURRENT`, so a card built here and
-a card served over the wire say the same.
+It holds two kinds of thing. **Records** travel between processes: a request, a result, a run
+event, a pause, a judgement. **Ports** are the outbound dependencies, written as `Protocol`s,
+so a harness can be built against the seam and a service swapped in behind it.
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) has the diagrams: who uses what, how the modules
+and ports relate, the run lifecycle, and the main models.
 
 ## Install
 
 ```bash
 uv add trellis-contracts
+# or, from a sibling checkout, the way agent-harness and agent-runs do it:
+uv add --editable ../agent-contracts
 ```
 
-## The one rule
+It needs Python 3.12 or newer and `pydantic>=2.13,<3`.
 
-`AgentExecutionContext.scope_fields()` applies the Memory Service's coherence rules at this
-boundary — `agent_run_id` needs `agent_id`, `session_id` needs `thread_id`, `turn_id` needs
-`session_id` — so a context that cannot be expressed coherently is corrected here rather
-than rejected at the far end of an HTTP call.
+## Quickstart
 
-## Tests
+An application creates the context once per execution. An agent takes a request and returns a
+response:
 
-```bash
-uv run pytest
+```python
+from trellis.contracts import (
+    AgentExecutionContext,
+    AgentRequest,
+    AgentResponse,
+    Claim,
+    EvidenceRef,
+    RunRecord,
+    RunStart,
+    RunStatus,
+)
+
+ctx = AgentExecutionContext.create(
+    tenant_id="acme",
+    user_id="u1",
+    agent_id="analyst",
+    thread_id="chat-42",
+    turn_id="t3",
+    timeout_seconds=30,
+)
+request = AgentRequest.create(ctx, "Why did revenue fall?")
+
+response = AgentResponse.ok(
+    "Revenue fell 4% on lower renewals.",
+    claims=[Claim(claim_id="c1", text="Revenue fell 4%", evidence_ids=["chunk_1"])],
+    evidence=[EvidenceRef(source_id="chunk_1", citation="Q3 report, p. 4")],
+)
+assert response.succeeded
+
+# The Memory Service's Scope keywords, made coherent: a turn with no session gets one.
+assert ctx.scope_fields()["session_id"] == "chat-42-session"
+
+# What a run store keeps, and the one transition check.
+record = RunRecord.from_start(RunStart.from_request(request))
+assert record.status is RunStatus.RUNNING and record.status.can_become(RunStatus.PAUSED)
 ```
 
-## Contracts v3
-
-Beyond the request/response pair, the package carries the seams the rest of the platform
-builds on (ADRs 0001 and 0002 in `docs/adr`): `RunEvent` (the AG-UI event vocabulary plus
-`CONTEXT_LOADED` and `INTERRUPT`), `Interrupt` and `InterruptResolution` (one pause
-mechanism for every framework; approve, reject or edit of a tool call is also `Feedback`),
-`Feedback` (human, judge and interrupt judgements on runs, answers, memories, tool calls,
-briefs and procedures), `JudgeVerdict`, `AgentCard` (the A2A 1.0 card mapped from
-`AgentDescriptor`), `RunStart`, `RunRecord`, `ScheduleSpec` and `Schedule` (what agent-runs
-stores), and the ports `EventSink`, `RunStore`, `Judge` and `AgentDirectory`.
+A run that pauses to ask a person, streams that it did, and gets an answer:
 
 ```python
 from trellis.contracts import (
@@ -336,4 +95,271 @@ answer = InterruptResolution(
     decision=InterruptDecision.ANSWER,
     answer="Globex",
 )
+assert answer.resolves(interrupt)
+assert event.data["interrupt"]["options"] == ["Acme", "Globex"]
 ```
+
+## Which type do I use?
+
+| When you want to... | Use |
+| --- | --- |
+| start an execution from an application | `AgentExecutionContext.create(...)`, then `AgentRequest.create(ctx, input)` |
+| call a nested agent | `ctx.for_agent("worker")`: it keeps the tenant, user, thread and trace, makes this run the parent, and never extends the deadline |
+| return a result from an agent | `AgentResponse.ok(data)`, `AgentResponse.failed(error)`, or `AgentResponse.coerce(anything)` to wrap an existing return value |
+| say where an answer came from | `Claim` with `evidence_ids`, plus `EvidenceRef`s on `AgentResponse.evidence` |
+| return something too large for the result | `ArtifactClient.put(...)`, which returns an `ArtifactRef` |
+| ask the Memory Service to remember something | `MemoryObservation`, whose `kind` must be one of `OBSERVATION_KINDS` |
+| propose a next step instead of calling another agent | `RecommendedAction` |
+| report a non-fatal problem | `response.add_warning(code, message, **details)`, which adds an `AgentWarning` |
+| fail in a way callers can branch on | raise a `HarnessError` subclass; turn any exception into an `AgentError` with `AgentError.of(exc)` |
+| ask a person something in the middle of a run | raise `AgentPaused(question)` in the agent; the harness turns it into an `Interrupt` with `Interrupt.from_paused` |
+| get a tool call approved before it runs | `Interrupt(reason=InterruptReason.APPROVAL, tool_call=ToolCall(...))` |
+| record how a person answered | `InterruptResolution`; for an approve, reject or edit of a tool call, `resolution.to_feedback(interrupt, ctx)` gives the matching `Feedback` |
+| record a judgement on a run, answer, memory, tool call, brief or procedure | `Feedback.for_context(ctx, target_kind=..., target_id=..., verdict=...)` |
+| score a finished run automatically | a `Judge` returns a `JudgeVerdict`; `verdict.as_feedback(event)` turns it into judge `Feedback` on the `AgentEvalEvent`'s answer |
+| keep a run beyond the process, or queue it for a worker | `RunStart.from_request(request)`, then `RunStore.started` or `RunStore.queued`, which return a `RunRecord` |
+| check whether a status change is allowed | `RunStatus.can_become(target)` |
+| stream progress to a UI | the `RunEvent` constructors (`started`, `text`, `tool`, `interrupt`, `custom`, `finished`), sent with `EventSink.publish` |
+| run an agent on a schedule | `ScheduleSpec` is what a caller writes; `Schedule` is what agent-runs returns |
+| publish an agent to other agents | `AgentDescriptor.build(...)`, then `AgentCard.from_descriptor(descriptor, url=...)`, then `card.to_a2a()` |
+| read another agent's card | `AgentCard.from_a2a(json)`, which drops unknown keys and refuses non-http(s) URLs |
+| describe, call and report tools | `ToolSpec` (`descriptor()` is the Memory Service shape), `ToolCall`, `ToolOutcome` with its `ToolStatus` |
+| call a model provider-neutrally | `ModelRequest`, a `ModelClient`, `ModelResponse.coerce(raw)`, and `ModelUsage.extract(raw)` for token counts |
+| scope a Memory Service call | `ctx.scope_fields()` |
+| make a write idempotent across retries | `ctx.idempotency_key(*parts)`, or `stable_id(*parts)` |
+| log with the run's identifiers | `ctx.log_fields()` |
+
+## Everything it exports
+
+Every name below is in `trellis.contracts.__all__` and importable from `trellis.contracts`.
+
+### `context`
+
+| Name | What it is |
+| --- | --- |
+| `AgentExecutionContext` | The frozen identity and lineage of one execution: tenant, user, thread, agent, run lineage, correlation ids and an absolute deadline. Build it with `create`, derive a child with `for_agent`, and use `scope_fields()`, `idempotency_key()` and `log_fields()` |
+
+### `messages`
+
+| Name | What it is |
+| --- | --- |
+| `AgentRequest` | What an agent was asked to do: objective, input, context, requested skills, constraints and references. `query` is the text a memory retrieval should use |
+| `AgentResponse` | What an agent produced: status, data, claims, evidence, artifacts, memory observations, recommended actions, warnings, metrics and error |
+| `AgentStatus` | How an execution ended (`SUCCESS`, `PARTIAL`, `ERROR`, `TIMEOUT`, `CANCELLED`, `REJECTED`), or `PAUSED`. `ok` is true for `SUCCESS` and `PARTIAL` |
+
+### `artifacts`
+
+| Name | What it is |
+| --- | --- |
+| `ArtifactRef` | A pointer to content stored outside the result |
+| `EvidenceRef` | Where a claim came from, in the Memory Service's evidence shape |
+| `Claim` | One assertion an agent made, with the ids of its evidence |
+| `RecommendedAction` | A next step the agent proposes, with a short rationale |
+| `MemoryObservation` | Something the agent wants remembered. Its `kind` is checked against `OBSERVATION_KINDS` |
+| `AgentWarning` | A non-fatal problem the caller should see |
+| `OBSERVATION_KINDS` | The observation kinds the Memory Service accepts |
+
+### `tool`
+
+| Name | What it is |
+| --- | --- |
+| `ToolSpec` | What a tool is: name, schemas, source or server, idempotency, side effects and authorization metadata |
+| `ToolCall` | One call: the tool, its arguments, and an optional idempotency key |
+| `ToolOutcome` | The normalised result of a call. Assignments are validated |
+| `ToolStatus` | `ok`, `error`, `timeout`, `rejected`, `cancelled`. It is a `StrEnum`, so `outcome.status == "ok"` holds |
+
+### `model`
+
+| Name | What it is |
+| --- | --- |
+| `ModelRequest` | One model invocation: model, provider, prompt or messages, params and tools |
+| `ModelResponse` | The normalised result. `raw` keeps the provider object, and `coerce` wraps any provider response |
+| `ModelUsage` | Token and cost accounting. `extract` reads the common provider spellings and never invents counts |
+
+### `errors`
+
+| Name | What it is |
+| --- | --- |
+| `AgentError` | A normalised, serialisable failure with `category` and `retryable`. `AgentError.of(exc)` builds one from any exception |
+| `ErrorCategory` | The closed set of failure categories |
+| `classify` | Best-effort category for any exception, including Memory Service SDK and `httpx` errors matched by name |
+| `AgentPaused` | Raised by an agent to suspend the run and ask a person something. It is not an error |
+| `HarnessError` | Base of the failures a harness raises. Each subclass carries its own `code`, `category` and `retryable` |
+| `ConfigurationError` | A misconfiguration (`VALIDATION`) |
+| `AgentTimeoutError` | The execution ran out of time (`TIMEOUT`, retryable) |
+| `AgentCancelledError` | The execution was cancelled (`CANCELLED`) |
+| `PolicyDeniedError` | A policy refused the execution, a tool or a model (`POLICY`) |
+| `MemoryUnavailableError` | The Memory Service could not be reached (`MEMORY`, retryable) |
+| `ModelError` | A model call failed (`MODEL`) |
+| `ToolError` | A tool call failed (`TOOL`) |
+| `ToolNotFoundError` | A `ToolError` for a tool that does not exist (`VALIDATION`) |
+| `ResultValidationError` | An agent's result failed validation (`VALIDATION`) |
+
+`trellis.contracts.errors` also has `is_pause_signal(exc)`, which recognises `AgentPaused`
+and LangGraph's suspend signals by class name, and `RETRYABLE_CATEGORIES`.
+
+### `runs`
+
+| Name | What it is |
+| --- | --- |
+| `RunStatus` | Where a run is: `QUEUED`, `RUNNING`, `PAUSED` or a final status spelled like `AgentStatus`. `can_become` is the state machine and `final` says whether it has ended |
+| `RunStart` | What starting a run records. It is agent-runs' create body, and `from_request` builds it from an `AgentRequest` |
+| `RunRecord` | A run as a store keeps it: the start plus status, output, error, the interrupt it waits on, the last resolution, an opaque `checkpoint` and the attempt |
+| `RunEvent` | One event of a run's stream, in the AG-UI vocabulary, ordered by `sequence` within an `attempt` |
+| `RunEventType` | The event vocabulary: AG-UI's names plus `CONTEXT_LOADED` and `INTERRUPT` |
+| `RunOutcome` | How a run finished, as `RUN_FINISHED` reports it. `from_status` maps a settled status to it |
+| `Interrupt` | The record of a paused run: the question, the expected answer shape, the UI hint, options, payload, the tool call under approval, the assignee, the deadline and the escalation |
+| `InterruptReason` | `QUESTION`, `APPROVAL`, `REVIEW`, `CHOICE`, `AUTH` |
+| `InterruptResolution` | How an interrupt was answered. `resolves` checks it answers that interrupt, and `to_feedback` gives the feedback for a tool-call decision |
+| `InterruptDecision` | `ANSWER`, `APPROVE`, `REJECT`, `EDIT`, `CANCEL` |
+| `ScheduleSpec` | A standing intent: which agent, what input, which cadence and timezone, on whose behalf |
+| `Schedule` | A schedule as agent-runs keeps it: the spec plus its id, author and the history of its fires |
+
+### `feedback` and `evaluation`
+
+| Name | What it is |
+| --- | --- |
+| `Feedback` | One judgement about one target. `for_context` binds it to the identity of the request it was given in |
+| `FeedbackTargetKind` | `run`, `answer`, `memory`, `tool_call`, `brief`, `procedure` |
+| `FeedbackVerdict` | `confirm`, `reject`, `correct`, `approve`, `edit`. `correct` and `edit` need a `correction` |
+| `FeedbackSource` | `human`, `judge`, `interrupt` |
+| `JudgeVerdict` | A judge's score in [0, 1] with its method, model and cost. `as_feedback` turns it into a `Feedback` |
+| `JudgeMethod` | `grounded` (deterministic citation and claim checks) or `llm` |
+| `AgentEvalEvent` (from `events`) | What a judge scores a finished run from. It carries references, not payloads |
+
+### `descriptors` and `a2a`
+
+| Name | What it is |
+| --- | --- |
+| `AgentDescriptor` | An agent's identity and skills. `build` accepts plain skill ids |
+| `SkillDescriptor` | One skill: id, version, description, schemas and tags |
+| `AgentCard` | The A2A 1.0 Agent Card. `from_descriptor` maps a descriptor, `to_a2a` writes camelCase JSON without the platform's `metadata`, and `from_a2a` reads a foreign card as data |
+| `AgentSkill` | A skill on the card |
+| `AgentCapabilities` | Streaming, push notifications, state history and extensions |
+| `AgentProvider` | The organisation behind the agent, with an http(s) URL |
+| `AgentInterface` | Another URL and transport the same agent answers on |
+| `A2A_PROTOCOL_VERSION` | `"1.0"`, the protocol `a2a-sdk` 1.x speaks |
+
+### `ids`
+
+| Name | What it is |
+| --- | --- |
+| `new_id(prefix)` | A fresh opaque id, such as `run_<hex>` |
+| `stable_id(*parts, prefix, size)` | A deterministic id derived from its parts, so a retry produces the same id |
+| `safe_id(value, max_len)` | Any value coerced into the id alphabet shared with the Memory Service |
+| `now()` | The platform clock: timezone-aware UTC |
+
+## The ports
+
+Each port is a `runtime_checkable` `Protocol` in `trellis.contracts.ports`, so an
+implementation conforms by shape and imports no base class from here.
+
+| Port | Methods | Use it when you need to |
+| --- | --- | --- |
+| `ModelClient` | `invoke`, `structured`, `stream` | call a model provider without naming the provider |
+| `ToolClient` | `list_tools`, `call` | run tools from local callables, an MCP server or a gateway |
+| `ArtifactClient` | `put`, `get` | keep large payloads out of results and graph state |
+| `MemoryPort` | `enabled`, `retrieve`, `observe`, `record_input`, `record_output`, `describe` | read from and write to the Memory Service (or switch memory off) |
+| `TelemetryProvider` | `start_span`, `record_event`, `record_metric`, `flush` | emit spans, events and metrics |
+| `TelemetryRedactor` | `redact_attributes`, `redact_input`, `redact_output` | strip what may not leave the process before it reaches a backend, a UI or a webhook |
+| `EvaluationProvider` | `score`, `submit_dataset_item` | write scores and dataset items to the tracing backend (feedback goes to the Memory Service instead) |
+| `AgentPolicyProvider` | `authorize_execution`, `authorize_tool`, `authorize_model` | allow or refuse a run, a tool call or a model call |
+| `EventSink` | `publish` | deliver a run's `RunEvent` stream: SSE, a webhook outbox, a test collector |
+| `RunStore` | `queued`, `started`, `paused`, `resumed`, `finished`, `get`, `list_paused` | keep a run beyond the process, with every move one that `RunStatus.can_become` allows |
+| `Judge` | `judge` | score a finished run off the critical path (`None` means it abstained) |
+| `AgentDirectory` | `get`, `find`, `publish` | find agents another agent may call, as `AgentCard`s |
+| `AgentInterceptor` | `name`, `order`, `before`, `after`, `on_error` | add an ordered stage to the execution pipeline |
+
+`ports.Runtime` (the object an interceptor is handed) is deliberately `Any`, because the
+concrete runtime belongs to whatever executes the agent. Which sibling repo implements which
+port today is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#the-ports).
+
+## A run's lifecycle
+
+`RunStatus.can_become(target)` is the one transition check, and a run store refuses anything
+else. `RunRecord.from_start` creates a record `QUEUED` or `RUNNING`, and nothing else.
+
+```mermaid
+stateDiagram-v2
+  [*] --> QUEUED : RunStore.queued
+  [*] --> RUNNING : RunStore.started
+  QUEUED --> RUNNING : a worker claims it
+  RUNNING --> QUEUED : the worker's lease lapsed
+  RUNNING --> PAUSED : Interrupt
+  PAUSED --> RUNNING : resumed in process
+  PAUSED --> QUEUED : resumed for a worker
+  QUEUED --> CANCELLED
+  QUEUED --> TIMEOUT
+  PAUSED --> CANCELLED
+  PAUSED --> TIMEOUT : past the deadline, nobody to escalate to
+  RUNNING --> SUCCESS
+  RUNNING --> PARTIAL
+  RUNNING --> ERROR
+  RUNNING --> REJECTED
+  RUNNING --> CANCELLED
+  RUNNING --> TIMEOUT
+```
+
+A paused run waits on exactly one `Interrupt`: a `QUESTION`, an `APPROVAL` (carries the tool
+call), a `REVIEW` (carries in `expects` what a correction looks like), a `CHOICE` (carries its
+`options`) or an `AUTH`. `assignee` is who answers (`user:u1`, `role:procurement`). Past the
+`deadline` the run goes to `escalate_to`, or times out when nobody is named.
+
+The executor pauses with an opaque `checkpoint` (`RunStore.paused(interrupt, checkpoint=)`):
+its resume journal and the framework's own resume state. The record returns it on every read
+and claim, so another worker resumes without repeating side effects. Finishing clears it.
+
+## The one rule
+
+`AgentExecutionContext.scope_fields()` applies the Memory Service's coherence rules at this
+boundary: `agent_run_id` needs `agent_id`, `session_id` needs `thread_id`, and `turn_id` needs
+`session_id`. A context that cannot be expressed coherently is corrected here rather than
+rejected at the far end of an HTTP call.
+
+## Wire conventions
+
+* **What the platform writes and streams refuses unknown fields**: `RunStart`, `RunEvent`,
+  `Interrupt`, `InterruptResolution`, `Feedback`, `JudgeVerdict`, `ScheduleSpec`. A
+  producer's typo is an error, not a silently dropped field. What is *read back* from a store
+  (`RunRecord`, `Schedule`) or from another agent (`AgentCard`) **ignores** unknown fields, so
+  a newer peer does not break an older reader.
+* **Every timestamp on a run, interrupt, event, feedback or schedule is timezone-aware.**
+* **Payloads that leave the process are unredacted** (`RunEvent.data`,
+  `Interrupt.awaiting()`). The surface that sends them passes them through a
+  `TelemetryRedactor`.
+
+`A2A_PROTOCOL_VERSION` is `"1.0"`, the protocol `a2a-sdk` 1.x speaks. `trellis-harness`'s A2A
+surface builds its served card with the SDK's own `PROTOCOL_VERSION_CURRENT`, so the two must
+agree; no test in a sibling repo asserts that yet, so a change to either needs the other
+checked by hand.
+
+## Versions, and what goes with what
+
+The packages move together. A combination is "supported" when a test run exercised it, not when
+it merely installs.
+
+| Package | Version | Notes |
+|---|---|---|
+| `trellis-contracts` | **0.4.0** | this package: contracts v3 (ADR 0002): queued runs, richer interrupts, the schedule fields agent-runs keeps, and only the ports something implements |
+| `trellis-harness` | **0.4.0** | moved to contracts 0.4.0 in the same change set |
+| `agent-runs` | **0.2.0** | pins `trellis-contracts>=0.4,<0.5` |
+| `trellis-memory` (Memory Service SDK) | **0.3.0** | what the harness's memory client is written against |
+| `pydantic` | `>=2.13,<3` | the only runtime dependency |
+| Python | `>=3.12` | `StrEnum`, PEP 695 generics |
+
+The design decisions are in `docs/adr`: [0001](docs/adr/0001-contracts-v2.md) (runs, events,
+interrupts, feedback, judging and agent cards) and [0002](docs/adr/0002-contracts-v3.md)
+(queued runs, richer interrupts, schedules, and the ports that were removed).
+
+## Development
+
+```bash
+uv sync --all-extras
+uv run pytest
+uv run ruff check .
+uv run ruff format --check .
+```
+
+CI (`.github/workflows/ci.yml`) runs the same steps on every push to `main` and every pull
+request. One test fails the build if the
+package imports anything beyond `pydantic` and the standard library.

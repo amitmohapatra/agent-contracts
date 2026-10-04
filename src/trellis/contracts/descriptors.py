@@ -1,5 +1,5 @@
-"""Agent and skill identity (§46). Present from V1 so a future registry has something to
-register; the default registry client is a no-op."""
+"""Agent and skill identity (§46): what a registry records about an agent, and what
+:meth:`trellis.contracts.AgentCard.from_descriptor` maps onto the A2A card."""
 
 from __future__ import annotations
 
