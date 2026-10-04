@@ -9,9 +9,9 @@ from __future__ import annotations
 
 import asyncio
 from enum import StrEnum
-from typing import Any
+from typing import Any, Final, Literal, get_args
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class ErrorCategory(StrEnum):
@@ -34,18 +34,90 @@ RETRYABLE_CATEGORIES = frozenset(
 )
 
 
+#: Who reported a failure: the component that failed, never the exception class (that is
+#: ``code``). The harness's framework adapters (``function``, ``langgraph``,
+#: ``openai_agents``, ``claude_agent_sdk``, ``react``: the source of every run failure it
+#: records), its tool layer (``tools``), an MCP tool behind the gateway (``mcp``), a remote
+#: agent called over A2A (``a2a``), the Memory Service (``memory``) and agent-runs itself
+#: (``agent-runs``: a lapsed lease, an unanswered interrupt, a schedule that could not fire).
+ErrorSource = Literal[
+    "agent-runs",
+    "tools",
+    "mcp",
+    "a2a",
+    "memory",
+    "function",
+    "langgraph",
+    "openai_agents",
+    "claude_agent_sdk",
+    "react",
+]
+#: :data:`ErrorSource` as a set, for checking a value before it reaches a record.
+ERROR_SOURCES: Final[frozenset[str]] = frozenset(get_args(ErrorSource))
+#: Where a qualified source's qualifier goes (``mcp.refund`` is ``mcp`` plus ``refund``).
+SOURCE_DETAIL: Final = "source_detail"
+#: The longest exception text :meth:`AgentError.of` keeps, in characters.
+MESSAGE_MAX_CHARS: Final = 2000
+
+
 class AgentError(BaseModel):
     """A normalized, serializable failure."""
 
     model_config = ConfigDict(frozen=True)
 
-    code: str
-    category: ErrorCategory = ErrorCategory.UNKNOWN
-    message: str = ""
-    retryable: bool = False
-    source: str | None = None
-    details: dict[str, Any] = Field(default_factory=dict)
-    trace_id: str | None = None
+    code: str = Field(
+        description="Machine-readable failure code: a HarnessError's own code, else the "
+        "exception's class name.",
+        examples=["TOOL_ERROR", "TimeoutError", "lease_expired"],
+    )
+    category: ErrorCategory = Field(
+        default=ErrorCategory.UNKNOWN,
+        description="What kind of failure it is; callers branch on this, not on exception "
+        "classes. TIMEOUT, RATE_LIMIT and DEPENDENCY are retryable by default.",
+    )
+    message: str = Field(
+        default="",
+        description="Human-readable explanation (the exception's text, at most "
+        f"{MESSAGE_MAX_CHARS} characters when built by AgentError.of); empty when none.",
+    )
+    retryable: bool = Field(
+        default=False,
+        description="Whether the same operation may succeed if tried again: the exception's "
+        "own retryable attribute when it has one, else true only for a retryable category.",
+    )
+    source: ErrorSource | None = Field(
+        default=None,
+        description="Component that reported the failure. A qualified value such as "
+        f"'mcp.<tool>' is stored as its root, the rest in details.{SOURCE_DETAIL}. "
+        "None when unknown.",
+        examples=["langgraph", "agent-runs", "mcp"],
+    )
+    details: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Structured context for the failure as a JSON object (ids, offending "
+        "values); empty when none.",
+    )
+    trace_id: str | None = Field(
+        default=None,
+        description="Trace id of the failing execution (its context's trace_id), to find "
+        "its spans and logs; None when unknown.",
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _a_qualified_source_keeps_its_qualifier(cls, data: Any) -> Any:
+        """``mcp.refund`` (the harness's ``ToolError`` for one MCP tool) becomes source
+        ``mcp`` with ``refund`` in ``details``: the vocabulary stays closed and nothing a
+        caller said is lost. Anything else is left for the field to accept or refuse."""
+        if not isinstance(data, dict):
+            return data
+        source, details = data.get("source"), data.get("details")
+        if not isinstance(source, str) or (details is not None and not isinstance(details, dict)):
+            return data
+        root, dot, qualifier = source.partition(".")
+        if not dot or root not in ERROR_SOURCES:
+            return data
+        return {**data, "source": root, "details": {SOURCE_DETAIL: qualifier, **(details or {})}}
 
     @classmethod
     def of(
@@ -57,18 +129,35 @@ class AgentError(BaseModel):
         trace_id: str | None = None,
         retryable: bool | None = None,
     ) -> AgentError:
-        """Normalize an exception. A :class:`HarnessError` carries its own classification."""
+        """Normalize an exception. A :class:`HarnessError` carries its own classification.
+
+        Anything else is sorted by :func:`classify` unless ``category`` is given. Whether it
+        is retryable is, in order: ``retryable`` when passed; the exception's own
+        ``retryable`` attribute when it has a bool one (the Memory Service SDK's and
+        bifrost-sdk's errors do: the service that answered knows better than a class name);
+        else whether the category is in :data:`RETRYABLE_CATEGORIES`. ``source`` must be an
+        :data:`ErrorSource`, optionally qualified (``mcp.refund``)."""
         if isinstance(exc, HarnessError):
             return exc.to_error(trace_id=trace_id, source=source or exc.source)
         cat = category or classify(exc)
-        return cls(
-            code=type(exc).__name__,
-            category=cat,
-            message=str(exc)[:2000],
-            retryable=cat in RETRYABLE_CATEGORIES if retryable is None else retryable,
-            source=source,
-            trace_id=trace_id,
+        if retryable is None:
+            retryable = _own_retryable(exc)
+        return cls.model_validate(
+            {
+                "code": type(exc).__name__,
+                "category": cat,
+                "message": str(exc)[:MESSAGE_MAX_CHARS],
+                "retryable": cat in RETRYABLE_CATEGORIES if retryable is None else retryable,
+                "source": source,
+                "trace_id": trace_id,
+            }
         )
+
+
+def _own_retryable(exc: BaseException) -> bool | None:
+    """What the exception itself says about retrying, when it says anything."""
+    value = getattr(exc, "retryable", None)
+    return value if isinstance(value, bool) else None
 
 
 class AgentPaused(Exception):
@@ -147,8 +236,9 @@ def is_pause_signal(exc: BaseException) -> bool:
 def classify(exc: BaseException) -> ErrorCategory:
     """Best-effort category for an arbitrary exception.
 
-    Known Memory Service SDK errors and stdlib timeouts are mapped explicitly; everything
-    else is ``UNKNOWN`` (and therefore *not* retryable) rather than optimistically retried.
+    Known Memory Service SDK, bifrost-sdk and httpx errors and stdlib timeouts are mapped
+    explicitly; everything else is ``UNKNOWN`` (and therefore *not* retryable) rather than
+    optimistically retried.
     """
     if isinstance(exc, asyncio.CancelledError):
         return ErrorCategory.CANCELLED
@@ -161,28 +251,51 @@ def classify(exc: BaseException) -> ErrorCategory:
     return _sdk_category(exc)
 
 
+#: The packages whose exceptions are mapped by class name, so the contract never imports
+#: them: the Memory Service SDK (``trellis.memory``), bifrost-sdk and httpx.
+_SDK_MODULES: Final = frozenset({"trellis", "bifrost_sdk", "httpx"})
+#: Class name to category. One table for every package above: a name means the same thing
+#: whichever SDK raised it (``TimeoutError`` is the Memory Service SDK's, ``RateLimited``
+#: and ``Unreachable`` are bifrost-sdk's, ``TimeoutException`` is httpx's timeout base).
+_SDK_CATEGORIES: Final[dict[str, ErrorCategory]] = {
+    "AuthenticationError": ErrorCategory.AUTHORIZATION,
+    "AuthorizationError": ErrorCategory.AUTHORIZATION,
+    "PermissionDeniedError": ErrorCategory.AUTHORIZATION,
+    "ValidationError": ErrorCategory.VALIDATION,
+    "BadRequestError": ErrorCategory.VALIDATION,
+    "UnprocessableError": ErrorCategory.VALIDATION,
+    "ConflictError": ErrorCategory.VALIDATION,
+    "NotFoundError": ErrorCategory.DEPENDENCY,
+    "RateLimitedError": ErrorCategory.RATE_LIMIT,
+    "RateLimited": ErrorCategory.RATE_LIMIT,
+    "DependencyUnavailableError": ErrorCategory.DEPENDENCY,
+    "Unreachable": ErrorCategory.DEPENDENCY,
+    "CircuitOpen": ErrorCategory.DEPENDENCY,
+    "ServerError": ErrorCategory.DEPENDENCY,
+    "GatewayError": ErrorCategory.DEPENDENCY,
+    "EmptyResponse": ErrorCategory.MODEL,
+    "InvalidJSON": ErrorCategory.MODEL,
+    "InsufficientEvidence": ErrorCategory.MEMORY,
+    "MemoryError": ErrorCategory.MEMORY,
+    "TimeoutError": ErrorCategory.TIMEOUT,
+    "ConnectError": ErrorCategory.DEPENDENCY,
+    "NetworkError": ErrorCategory.DEPENDENCY,
+    "RemoteProtocolError": ErrorCategory.DEPENDENCY,
+    "ConnectTimeout": ErrorCategory.TIMEOUT,
+    "ReadTimeout": ErrorCategory.TIMEOUT,
+    "WriteTimeout": ErrorCategory.TIMEOUT,
+    "PoolTimeout": ErrorCategory.TIMEOUT,
+    "TimeoutException": ErrorCategory.TIMEOUT,
+}
+
+
 def _sdk_category(exc: BaseException) -> ErrorCategory:
-    """Map ``trellis.memory`` SDK errors (and httpx transport errors) by module and class
-    name, so the contract never imports the SDK."""
-    name = type(exc).__name__
-    mapping = {
-        "AuthenticationError": ErrorCategory.AUTHORIZATION,
-        "AuthorizationError": ErrorCategory.AUTHORIZATION,
-        "ValidationError": ErrorCategory.VALIDATION,
-        "ConflictError": ErrorCategory.VALIDATION,
-        "NotFoundError": ErrorCategory.DEPENDENCY,
-        "RateLimitedError": ErrorCategory.RATE_LIMIT,
-        "DependencyUnavailableError": ErrorCategory.DEPENDENCY,
-        "InsufficientEvidence": ErrorCategory.MEMORY,
-        "MemoryError": ErrorCategory.MEMORY,
-        "ConnectError": ErrorCategory.DEPENDENCY,
-        "ConnectTimeout": ErrorCategory.TIMEOUT,
-        "ReadTimeout": ErrorCategory.TIMEOUT,
-        "PoolTimeout": ErrorCategory.TIMEOUT,
-    }
-    module = type(exc).__module__.split(".")[0]
-    if module in ("trellis", "httpx") and name in mapping:
-        return mapping[name]
+    """Map SDK and transport errors by module and class name, nearest class first, so a
+    subclass an SDK adds later (httpx's ``WriteTimeout`` under ``TimeoutException``, a new
+    ``MemoryError``) is classified like its parent."""
+    for cls in type(exc).__mro__:
+        if cls.__module__.split(".")[0] in _SDK_MODULES and cls.__name__ in _SDK_CATEGORIES:
+            return _SDK_CATEGORIES[cls.__name__]
     return ErrorCategory.UNKNOWN
 
 
@@ -190,7 +303,9 @@ def _sdk_category(exc: BaseException) -> ErrorCategory:
 
 
 class HarnessError(Exception):
-    """Base class for failures the harness itself raises."""
+    """Base class for failures the harness itself raises. ``source`` is an
+    :data:`ErrorSource`, optionally qualified (``mcp.refund``); :meth:`to_error` refuses any
+    other."""
 
     code = "HARNESS_ERROR"
     category = ErrorCategory.UNKNOWN
@@ -214,14 +329,16 @@ class HarnessError(Exception):
             self.retryable = retryable
 
     def to_error(self, *, trace_id: str | None = None, source: str | None = None) -> AgentError:
-        return AgentError(
-            code=self.code,
-            category=self.category,
-            message=self.message,
-            retryable=self.retryable,
-            source=source or self.source,
-            details=self.details,
-            trace_id=trace_id,
+        return AgentError.model_validate(
+            {
+                "code": self.code,
+                "category": self.category,
+                "message": self.message,
+                "retryable": self.retryable,
+                "source": source or self.source,
+                "details": self.details,
+                "trace_id": trace_id,
+            }
         )
 
 

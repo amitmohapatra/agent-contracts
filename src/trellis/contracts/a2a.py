@@ -37,23 +37,44 @@ def _http_url(value: str) -> str:
 class AgentCapabilities(BaseModel):
     model_config = _A2A
 
-    streaming: bool = False
-    push_notifications: bool = False
-    state_transition_history: bool = False
-    extensions: list[dict[str, Any]] = Field(default_factory=list)
+    streaming: bool = Field(
+        default=False, description="Whether the agent streams task updates (SSE)."
+    )
+    push_notifications: bool = Field(
+        default=False, description="Whether the agent can push task updates to a webhook."
+    )
+    state_transition_history: bool = Field(
+        default=False, description="Whether the agent keeps and returns a task's state history."
+    )
+    extensions: list[dict[str, Any]] = Field(
+        default_factory=list, description="A2A protocol extensions the agent supports, as JSON."
+    )
 
 
 class AgentSkill(BaseModel):
     model_config = _A2A
 
-    id: str
-    name: str
-    description: str = ""
-    tags: list[str] = Field(default_factory=list)
-    examples: list[str] = Field(default_factory=list)
-    input_modes: list[str] | None = None
-    output_modes: list[str] | None = None
-    security: list[dict[str, list[str]]] | None = None
+    id: str = Field(description="Id of the skill, unique within the card.")
+    name: str = Field(description="Human-readable name of the skill.")
+    description: str = Field(default="", description="What the skill does, for callers.")
+    tags: list[str] = Field(default_factory=list, description="Keywords for finding the skill.")
+    examples: list[str] = Field(
+        default_factory=list, description="Example prompts the skill handles."
+    )
+    input_modes: list[str] | None = Field(
+        default=None,
+        description="Media types the skill accepts; None means the card's default_input_modes.",
+        examples=[["text/plain", "application/json"]],
+    )
+    output_modes: list[str] | None = Field(
+        default=None,
+        description="Media types the skill returns; None means the card's default_output_modes.",
+    )
+    security: list[dict[str, list[str]]] | None = Field(
+        default=None,
+        description="Security requirements for this skill (scheme name to scopes, any one "
+        "entry suffices); None means the card's security.",
+    )
 
     @classmethod
     def from_descriptor(cls, skill: SkillDescriptor) -> Self:
@@ -68,8 +89,8 @@ class AgentSkill(BaseModel):
 class AgentProvider(BaseModel):
     model_config = _A2A
 
-    organization: str
-    url: str
+    organization: str = Field(description="Name of the organization that runs the agent.")
+    url: str = Field(description="The organization's website, an http(s) URL.")
 
     _url = field_validator("url")(_http_url)
 
@@ -79,8 +100,11 @@ class AgentInterface(BaseModel):
 
     model_config = _A2A
 
-    url: str
-    transport: str
+    url: str = Field(description="Endpoint the agent answers on there, an http(s) URL.")
+    transport: str = Field(
+        description="Transport spoken at url (JSONRPC, GRPC or HTTP+JSON in A2A 1.0).",
+        examples=["GRPC"],
+    )
 
     _url = field_validator("url")(_http_url)
 
@@ -96,25 +120,65 @@ class AgentCard(BaseModel):
 
     model_config = _A2A
 
-    name: str
-    description: str = ""
-    url: str
-    version: str
-    protocol_version: str = A2A_PROTOCOL_VERSION
-    provider: AgentProvider | None = None
-    documentation_url: str | None = None
-    icon_url: str | None = None
-    preferred_transport: str = "JSONRPC"
-    additional_interfaces: list[AgentInterface] = Field(default_factory=list)
-    capabilities: AgentCapabilities = Field(default_factory=AgentCapabilities)
-    default_input_modes: list[str] = Field(default_factory=lambda: [_TEXT_PLAIN])
-    default_output_modes: list[str] = Field(default_factory=lambda: [_TEXT_PLAIN])
-    skills: list[AgentSkill] = Field(default_factory=list)
-    security_schemes: dict[str, dict[str, Any]] = Field(default_factory=dict)
-    security: list[dict[str, list[str]]] = Field(default_factory=list)
-    supports_authenticated_extended_card: bool = False
-    signatures: list[dict[str, Any]] = Field(default_factory=list)
-    metadata: dict[str, Any] = Field(default_factory=dict, exclude=True)
+    name: str = Field(description="Name of the agent (the descriptor's agent_id).")
+    description: str = Field(default="", description="What the agent does, for callers.")
+    url: str = Field(
+        description="Endpoint for the preferred transport, an http(s) URL.",
+        examples=["https://agents.example.com/a2a/refunds"],
+    )
+    version: str = Field(description="Version of the agent.", examples=["0.1.0"])
+    protocol_version: str = Field(
+        default=A2A_PROTOCOL_VERSION, description="A2A protocol version the card declares."
+    )
+    provider: AgentProvider | None = Field(
+        default=None, description="Who runs the agent; None when unstated."
+    )
+    documentation_url: str | None = Field(
+        default=None, description="The agent's documentation, an http(s) URL."
+    )
+    icon_url: str | None = Field(default=None, description="The agent's icon, an http(s) URL.")
+    preferred_transport: str = Field(
+        default="JSONRPC",
+        description="Transport spoken at url (JSONRPC, GRPC or HTTP+JSON in A2A 1.0).",
+    )
+    additional_interfaces: list[AgentInterface] = Field(
+        default_factory=list, description="Other URLs and transports the same agent answers on."
+    )
+    capabilities: AgentCapabilities = Field(
+        default_factory=AgentCapabilities, description="Optional protocol features supported."
+    )
+    default_input_modes: list[str] = Field(
+        default_factory=lambda: [_TEXT_PLAIN],
+        description="Media types every skill accepts unless it says otherwise.",
+    )
+    default_output_modes: list[str] = Field(
+        default_factory=lambda: [_TEXT_PLAIN],
+        description="Media types every skill returns unless it says otherwise.",
+    )
+    skills: list[AgentSkill] = Field(
+        default_factory=list, description="What the agent can be asked to do."
+    )
+    security_schemes: dict[str, dict[str, Any]] = Field(
+        default_factory=dict,
+        description="Authentication schemes by name, as OpenAPI security scheme objects.",
+    )
+    security: list[dict[str, list[str]]] = Field(
+        default_factory=list,
+        description="Security requirements (scheme name to scopes); any one entry suffices.",
+    )
+    supports_authenticated_extended_card: bool = Field(
+        default=False,
+        description="Whether an authenticated caller can fetch a fuller card.",
+    )
+    signatures: list[dict[str, Any]] = Field(
+        default_factory=list, description="JWS signatures over the card, as JSON."
+    )
+    metadata: dict[str, Any] = Field(
+        default_factory=dict,
+        exclude=True,
+        description="The platform's own facts about the agent (group, framework, harness "
+        "version); never published.",
+    )
 
     _url = field_validator("url")(_http_url)
 

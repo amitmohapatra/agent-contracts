@@ -32,14 +32,30 @@ class JudgeVerdict(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    score: Fraction
-    method: JudgeMethod
-    label: str | None = None
-    rationale: str | None = None
-    model: str | None = None
-    cost_usd: float | None = None
-    evidence_refs: list[EvidenceRef] = Field(default_factory=list)
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    score: Fraction = Field(
+        description="The judge's score in [0, 1]; at or above the threshold confirms the answer."
+    )
+    method: JudgeMethod = Field(description="How the score was reached.")
+    label: str | None = Field(
+        default=None,
+        description="Short verdict label the judge gave, if any.",
+        examples=["grounded", "unsupported"],
+    )
+    rationale: str | None = Field(
+        default=None, description="Concise reason for the score; becomes the feedback comment."
+    )
+    model: str | None = Field(
+        default=None, description="Model that judged, for an LLM verdict; None for GROUNDED."
+    )
+    cost_usd: float | None = Field(
+        default=None, description="What judging cost, in US dollars; None when unknown."
+    )
+    evidence_refs: list[EvidenceRef] = Field(
+        default_factory=list, description="Evidence the judge checked the answer against."
+    )
+    metadata: dict[str, Any] = Field(
+        default_factory=dict, description="Free-form JSON object copied into the feedback."
+    )
 
     @property
     def reviewer(self) -> str:

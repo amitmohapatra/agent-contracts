@@ -62,24 +62,57 @@ class Feedback(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    feedback_id: str = Field(default_factory=lambda: new_id("fb_"))
-    tenant_id: str
-    workspace_id: str | None = None
-    user_id: str | None = None
-    agent_id: str | None = None
-    agent_run_id: str | None = None
-    trace_id: str | None = None
-    target_kind: FeedbackTargetKind
-    target_id: str
-    verdict: FeedbackVerdict
-    source: FeedbackSource = FeedbackSource.HUMAN
-    score: Fraction | None = None
-    correction: Any = None
-    comment: str | None = None
-    reviewer: str | None = None
-    evidence_refs: list[EvidenceRef] = Field(default_factory=list)
-    metadata: dict[str, Any] = Field(default_factory=dict)
-    created_at: AwareDatetime = Field(default_factory=now)
+    feedback_id: str = Field(
+        default_factory=lambda: new_id("fb_"),
+        description="Feedback id, 'fb_' plus 32 hex characters unless given; the store keeps "
+        "one record per id.",
+    )
+    tenant_id: str = Field(description="Tenant the judged target belongs to.")
+    workspace_id: str | None = Field(
+        default=None, description="Workspace within the tenant; None when unused."
+    )
+    user_id: str | None = Field(
+        default=None, description="User of the run the feedback was given in, if any."
+    )
+    agent_id: str | None = Field(default=None, description="Agent whose work is judged, if any.")
+    agent_run_id: str | None = Field(
+        default=None, description="Run the feedback was given in or is about, if any."
+    )
+    trace_id: str | None = Field(default=None, description="Trace id of that run, if traced.")
+    target_kind: FeedbackTargetKind = Field(description="What kind of thing is judged.")
+    target_id: str = Field(
+        description="Id of the judged thing, of the kind target_kind names; not blank."
+    )
+    verdict: FeedbackVerdict = Field(
+        description="The judgement. CORRECT and EDIT carry correction."
+    )
+    source: FeedbackSource = Field(
+        default=FeedbackSource.HUMAN, description="Who judged: a person, a judge or an interrupt."
+    )
+    score: Fraction | None = Field(
+        default=None, description="A judge's number in [0, 1], strictly a float; None for none."
+    )
+    correction: Any = Field(
+        default=None,
+        description="What is right instead (any JSON value); required for CORRECT and EDIT.",
+    )
+    comment: str | None = Field(default=None, description="Free-text remark for people.")
+    reviewer: str | None = Field(
+        default=None,
+        description="Person (kind:id) or judge ('judge:<model or method>') who judged.",
+        examples=["user:u1", "judge:grounded"],
+    )
+    evidence_refs: list[EvidenceRef] = Field(
+        default_factory=list, description="Evidence the reviewer pointed at."
+    )
+    metadata: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Free-form JSON object; for a tool call, the tool, args and decision time.",
+    )
+    created_at: AwareDatetime = Field(
+        default_factory=now,
+        description="When it was given (ISO 8601, timezone-aware; UTC unless given).",
+    )
 
     @field_validator("target_id")
     @classmethod
