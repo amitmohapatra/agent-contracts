@@ -93,8 +93,10 @@ class RunStart(BaseModel):
     """What starting a run records. ``run_id`` comes from the caller's context, or is minted
     here when a service queues a run nobody is waiting on (a schedule firing);
     ``idempotency_key`` makes a retried start return the same run; ``on_behalf_of`` is the
-    person a scheduled run acts for, fixed when the schedule was made. Notifications are not
-    part of a run: agent-runs delivers them to the tenant's webhook subscriptions."""
+    person a scheduled run acts for, fixed when the schedule was made. ``priority`` and
+    ``concurrency_key`` say how a queued run waits its turn: higher priority is claimed first,
+    and runs sharing a key run a few at a time. Notifications are not part of a run:
+    agent-runs delivers them to the tenant's webhook subscriptions."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -154,6 +156,23 @@ class RunStart(BaseModel):
         "not known.",
         examples=["2026.10.05-3f2a1c"],
     )
+    priority: int = Field(
+        default=0,
+        ge=-1000,
+        le=1000,
+        description="Claim order among the tenant's queued runs: higher first, then the oldest; "
+        "-1000 to 1000, default 0.",
+        examples=[10],
+    )
+    concurrency_key: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=200,
+        description="Runs of the tenant sharing this key run only a few at a time (the run "
+        "store's limit, one unless its operator says otherwise); the rest wait QUEUED. None: "
+        "no such limit.",
+        examples=["thread:chat-42"],
+    )
     metadata: dict[str, Any] = Field(
         default_factory=dict,
         description="Free-form JSON object kept with the run; the contract never reads it.",
@@ -198,6 +217,36 @@ class InterruptReason(StrEnum):
 
 #: The control a surface renders for an interrupt.
 InterruptUI = Literal["approve", "form", "table", "diff", "choice"]
+#: How far a decision reaches: this call only, or calls like it for the rest of the run.
+InterruptRemember = Literal["once", "run"]
+
+
+class Option(BaseModel):
+    """One choice an interrupt offers. ``value`` is what an answer that picks it carries;
+    ``label`` and ``description`` are what a person sees. A plain string among
+    ``Interrupt.options`` is an option whose value is that string, shown as it is."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    value: str = Field(
+        description="What an answer that picks this option carries; not blank.",
+        examples=["eu"],
+    )
+    label: str | None = Field(
+        default=None,
+        description="What a person sees for it; None shows the value.",
+        examples=["Europe (Frankfurt)"],
+    )
+    description: str | None = Field(
+        default=None, description="A longer explanation shown with the label; None for none."
+    )
+
+    @field_validator("value")
+    @classmethod
+    def _a_value_is_given(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("an option needs a value an answer can carry")
+        return value
 
 
 class Interrupt(BaseModel):
@@ -206,10 +255,14 @@ class Interrupt(BaseModel):
     there is one. Surfaces translate it (AG-UI ``RunFinished{outcome: interrupt}``, A2A
     ``input-required``, a webhook) and the run store keeps it as ``awaiting``.
 
-    ``ui`` is the control a surface renders; ``assignee`` is a principal (``user:u1``,
-    ``role:procurement``) an inbox is filtered by; past ``deadline`` the run goes to
-    ``escalate_to``, or times out when nobody is named. Data too large to travel with the
-    question (a table, a diff) goes by reference in ``payload_ref``."""
+    ``ui`` is the control a surface renders; ``component`` names the asker's own screen, which
+    a surface that has it renders instead (with ``props`` as they are), ``ui`` staying the
+    fallback; ``ui_schema`` gives widget hints for the form ``expects`` describes.
+    ``options`` are plain strings or :class:`Option` objects; with ``multiple`` the answer is a
+    list of their values. ``assignee`` is a principal (``user:u1``, ``role:procurement``) an
+    inbox is filtered by; past ``deadline`` the run goes to ``escalate_to``, or times out when
+    nobody is named. Data too large to travel with the question (a table, a diff) goes by
+    reference in ``payload_ref``."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -232,7 +285,7 @@ class Interrupt(BaseModel):
     ui: InterruptUI = Field(
         default="approve",
         description="Control a surface renders: approve (yes/no), form (fields shaped by "
-        "expects), table, diff, or choice (one of options).",
+        "expects), table, diff, or choice (one of options); the fallback when component is set.",
     )
     expects: dict[str, Any] | None = Field(
         default=None,
@@ -240,9 +293,35 @@ class Interrupt(BaseModel):
         "than a text box; required for REVIEW.",
         examples=[{"type": "boolean"}],
     )
-    options: list[str] = Field(
+    options: list[str | Option] = Field(
         default_factory=list,
-        description="Choices offered, in display order; required (non-empty) for CHOICE.",
+        description="Choices offered, in display order: plain strings or Option objects "
+        "(value, label, description), with distinct values; required (non-empty) for CHOICE.",
+        examples=[["EU", {"value": "us", "label": "United States"}]],
+    )
+    multiple: bool = Field(
+        default=False,
+        description="Whether several may be picked: the answer is then a list of distinct "
+        "option values (or what expects describes); needs options or expects.",
+    )
+    ui_schema: dict[str, Any] | None = Field(
+        default=None,
+        description="Widget hints for the form expects describes, in the react-jsonschema-form "
+        "uiSchema convention; None for the surface's defaults.",
+        examples=[{"reason": {"ui:widget": "textarea"}}],
+    )
+    component: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=200,
+        description="Name of the asker's own screen, rendered instead of ui by a surface that "
+        "has it; needs no expects, but an answer still fits expects when given.",
+        examples=["refund-review"],
+    )
+    props: dict[str, Any] | None = Field(
+        default=None,
+        description="Data for component, passed to it as is and never interpreted (JSON "
+        "object, unredacted); needs component.",
     )
     payload: dict[str, Any] | None = Field(
         default=None,
@@ -295,7 +374,19 @@ class Interrupt(BaseModel):
             raise ValueError("a REVIEW interrupt says what a correction looks like in expects")
         if self.escalate_to is not None and self.deadline is None:
             raise ValueError("escalate_to needs a deadline; without one it never happens")
+        values = self.option_values
+        if len(set(values)) != len(values):
+            raise ValueError("options have distinct values, or an answer cannot tell them apart")
+        if self.multiple and not values and self.expects is None:
+            raise ValueError("multiple needs options to pick from, or expects to describe them")
+        if self.props is not None and self.component is None:
+            raise ValueError("props are a component's; name the component")
         return self
+
+    @property
+    def option_values(self) -> list[str]:
+        """The values an answer may pick, in display order (a plain string is its own)."""
+        return [option if isinstance(option, str) else option.value for option in self.options]
 
     @classmethod
     def from_paused(
@@ -375,6 +466,18 @@ class InterruptResolution(BaseModel):
         description="For EDIT, the tool call's edited arguments (required, non-empty); "
         "otherwise optional extra data.",
     )
+    comment: str | None = Field(
+        default=None,
+        max_length=4000,
+        description="The reviewer's remark on the decision, whatever it is; carried into the "
+        "feedback record. None for none.",
+        examples=["Fine this once; refunds over EUR 500 need finance."],
+    )
+    remember: InterruptRemember = Field(
+        default="once",
+        description="once: the decision covers this call only. run: approve calls like it for "
+        "the rest of the run without asking again (APPROVE of a tool call only).",
+    )
     resolved_at: AwareDatetime = Field(
         default_factory=now,
         description="When it was answered (ISO 8601, timezone-aware; UTC unless given).",
@@ -384,6 +487,8 @@ class InterruptResolution(BaseModel):
     def _an_edit_says_what_changed(self) -> Self:
         if self.decision == InterruptDecision.EDIT and not self.payload:
             raise ValueError("an EDIT decision carries the edited arguments in payload")
+        if self.remember == "run" and self.decision != InterruptDecision.APPROVE:
+            raise ValueError("only an approval is remembered for the run")
         return self
 
     def resolves(self, interrupt: Interrupt) -> bool:
@@ -422,6 +527,7 @@ class InterruptResolution(BaseModel):
             source=FeedbackSource.INTERRUPT,
             reviewer=self.reviewer,
             correction=self.payload if self.decision == InterruptDecision.EDIT else None,
+            comment=self.comment,
             metadata={
                 "interrupt_id": interrupt.interrupt_id,
                 "tool": call.tool,
@@ -767,7 +873,8 @@ class ScheduleSpec(BaseModel):
     ``cadence`` is a cron expression or one of agent-runs' named buckets (``hourly``,
     ``daily``, ``weekly``, ``weekdays``, ``manual``) evaluated in ``timezone``; agent-runs
     validates the expression and its floor. ``on_behalf_of`` is required: a run fired with
-    nobody present acts as the person who set the schedule, never wider."""
+    nobody present acts as the person who set the schedule, never wider. ``timeout_seconds``
+    and ``agent_version`` are copied into the :class:`RunStart` of every fire."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -800,6 +907,20 @@ class ScheduleSpec(BaseModel):
     )
     enabled: bool = Field(
         default=True, description="Whether it fires; a disabled schedule is kept but skipped."
+    )
+    timeout_seconds: float | None = Field(
+        default=None,
+        gt=0,
+        description="Most working time each fired run may take, in seconds, copied into its "
+        "RunStart.timeout_seconds; None: no limit of its own.",
+        examples=[600],
+    )
+    agent_version: str | None = Field(
+        default=None,
+        max_length=128,
+        description="Version of the agent's code that set the schedule, copied into each fired "
+        "run's RunStart.agent_version; None when not known.",
+        examples=["2026.10.05-3f2a1c"],
     )
     metadata: dict[str, Any] = Field(
         default_factory=dict,

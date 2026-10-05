@@ -40,6 +40,7 @@ from trellis.contracts import (
     Judge,
     JudgeMethod,
     JudgeVerdict,
+    Option,
     RunEvent,
     RunEventType,
     RunOutcome,
@@ -206,6 +207,7 @@ def test_an_interrupt_is_the_pause_plus_its_identity(ctx: AgentExecutionContext)
         "question",
         "ui",
         "options",
+        "multiple",
         "created_at",
     }
 
@@ -897,6 +899,8 @@ def test_everything_new_is_exported_and_the_version_is_the_installed_one() -> No
         "InterruptDecision",
         "InterruptReason",
         "InterruptResolution",
+        "InterruptRemember",
+        "Option",
         "Feedback",
         "FeedbackTargetKind",
         "FeedbackVerdict",
@@ -918,7 +922,7 @@ def test_everything_new_is_exported_and_the_version_is_the_installed_one() -> No
         "now",
     ):
         assert name in contracts.__all__ and hasattr(contracts, name), name
-    assert contracts.__version__ == md.version("trellis-contracts") == "0.5.1"
+    assert contracts.__version__ == md.version("trellis-contracts") == "0.6.0"
 
 
 @pytest.mark.parametrize(
@@ -1013,3 +1017,120 @@ def test_a_run_may_limit_its_working_time_and_name_its_agent_version() -> None:
     assert record.worked_seconds == 0
     with pytest.raises(ValueError, match="greater than or equal to 0"):
         RunRecord(**start.model_dump(), worked_seconds=-1)
+
+
+# --------------------------------------------------------------------------- 0.6.0 (ADR 0006)
+
+
+def test_options_are_plain_strings_or_options_with_a_label(ctx: AgentExecutionContext) -> None:
+    asked = _interrupt(
+        ctx,
+        reason=InterruptReason.CHOICE,
+        ui="choice",
+        options=["EU", Option(value="us", label="United States", description="Virginia")],
+    )
+    assert asked.option_values == ["EU", "us"]
+    awaiting = asked.awaiting()
+    # a plain string stays one on the wire; an option is an object
+    assert awaiting["options"] == [
+        "EU",
+        {"value": "us", "label": "United States", "description": "Virginia"},
+    ]
+    assert Interrupt.model_validate(awaiting) == asked
+    assert Option(value="eu").label is None
+    with pytest.raises(ValidationError, match="distinct values"):
+        _interrupt(ctx, options=["eu", Option(value="eu", label="Europe")])
+    with pytest.raises(ValidationError, match="needs a value"):
+        Option(value="  ")
+    with pytest.raises(ValidationError):
+        Option(value="eu", colour="blue")  # type: ignore[call-arg]
+
+
+def test_several_may_be_picked_from_options_or_what_expects_describes(
+    ctx: AgentExecutionContext,
+) -> None:
+    assert not _interrupt(ctx).multiple
+    picks = _interrupt(ctx, options=["a", "b"], multiple=True)
+    assert picks.multiple and picks.awaiting()["multiple"] is True
+    listed = {"type": "array", "items": {"type": "string"}}
+    assert _interrupt(ctx, expects=listed, multiple=True).multiple
+    with pytest.raises(ValidationError, match="multiple needs options"):
+        _interrupt(ctx, multiple=True)
+
+
+def test_an_interrupt_may_name_its_own_screen_and_widget_hints(
+    ctx: AgentExecutionContext,
+) -> None:
+    hints = {"reason": {"ui:widget": "textarea"}}
+    form = _interrupt(ctx, ui="form", expects={"type": "object"}, ui_schema=hints)
+    assert form.ui_schema == hints and form.component is None
+    # a component needs no expects; its props travel as they are, ui stays the fallback
+    screen = _interrupt(ctx, component="refund-review", props={"order": {"id": 91}})
+    assert screen.ui == "approve" and screen.expects is None
+    assert Interrupt.model_validate(screen.awaiting()).props == {"order": {"id": 91}}
+    with pytest.raises(ValidationError, match="name the component"):
+        _interrupt(ctx, props={"order": 91})
+    with pytest.raises(ValidationError):
+        _interrupt(ctx, component="")
+
+
+def test_a_decision_may_carry_a_comment_and_be_remembered_for_the_run(
+    ctx: AgentExecutionContext,
+) -> None:
+    call = ToolCall(tool="billing.refund", args={"amount": 240}, idempotency_key="call-1")
+    interrupt = _interrupt(ctx, reason=InterruptReason.APPROVAL, tool_call=call)
+
+    def resolve(decision: InterruptDecision, **fields: Any) -> InterruptResolution:
+        return InterruptResolution(
+            interrupt_id=interrupt.interrupt_id,
+            run_id=interrupt.run_id,
+            decision=decision,
+            **fields,
+        )
+
+    plain = resolve(InterruptDecision.APPROVE)
+    assert plain.remember == "once" and plain.comment is None
+    remembered = resolve(InterruptDecision.APPROVE, remember="run", comment="fine for today")
+    feedback = remembered.to_feedback(interrupt, ctx)
+    assert feedback is not None and feedback.comment == "fine for today"
+    rejected = resolve(InterruptDecision.REJECT, comment="too much")
+    assert rejected.comment == "too much"
+    for decision in (InterruptDecision.REJECT, InterruptDecision.ANSWER):
+        with pytest.raises(ValidationError, match="only an approval"):
+            resolve(decision, remember="run")
+    with pytest.raises(ValidationError):
+        resolve(InterruptDecision.APPROVE, remember="forever")
+
+
+def test_a_queued_run_has_a_priority_and_may_share_a_concurrency_key() -> None:
+    plain = RunStart(tenant_id="acme", agent_id="refunds")
+    assert plain.priority == 0 and plain.concurrency_key is None
+    urgent = RunStart(
+        tenant_id="acme", agent_id="refunds", priority=10, concurrency_key="thread:chat-42"
+    )
+    assert RunRecord(**urgent.model_dump()).priority == 10
+    for priority in (-1001, 1001):
+        with pytest.raises(ValidationError, match="priority"):
+            RunStart(tenant_id="acme", agent_id="refunds", priority=priority)
+    with pytest.raises(ValidationError, match="concurrency_key"):
+        RunStart(tenant_id="acme", agent_id="refunds", concurrency_key="")
+
+
+def test_a_schedule_carries_the_working_time_limit_and_version_of_its_runs() -> None:
+    spec = ScheduleSpec(
+        tenant_id="acme",
+        agent_id="digest",
+        name="Morning digest",
+        cadence="daily",
+        on_behalf_of="u1",
+        timeout_seconds=600,
+        agent_version="v7",
+    )
+    schedule = Schedule.from_spec(spec)
+    assert (schedule.timeout_seconds, schedule.agent_version) == (600, "v7")
+    bare = ScheduleSpec(tenant_id="t", agent_id="a", name="n", cadence="daily", on_behalf_of="u")
+    assert bare.timeout_seconds is None and bare.agent_version is None
+    with pytest.raises(ValidationError, match="greater than 0"):
+        ScheduleSpec(**{**spec.model_dump(), "timeout_seconds": 0})
+    with pytest.raises(ValidationError, match="128"):
+        ScheduleSpec(**{**spec.model_dump(), "agent_version": "v" * 129})
