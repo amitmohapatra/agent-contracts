@@ -5,8 +5,9 @@
 `pydantic` (`tests/test_contracts.py` fails the build if a module imports anything else).
 This page shows how the pieces fit, who uses which, and the one state machine the package
 owns. The decisions behind it are ADRs [0001](adr/0001-contracts-v2.md),
-[0002](adr/0002-contracts-v3.md), [0003](adr/0003-documented-fields-and-closed-vocabularies.md)
-and [0004](adr/0004-no-run-store-port.md).
+[0002](adr/0002-contracts-v3.md), [0003](adr/0003-documented-fields-and-closed-vocabularies.md),
+[0004](adr/0004-no-run-store-port.md), [0005](adr/0005-run-working-time-and-agent-version.md)
+and [0006](adr/0006-interrupts-v2-and-queue-order.md).
 
 ## In the platform
 
@@ -308,7 +309,8 @@ classDiagram
     <<frozen, closed>>
     +run_id, tenant_id, agent_id, parent_run_id
     +thread_id, user_id, workspace_id, on_behalf_of
-    +input, deadline, idempotency_key, metadata
+    +input, deadline, timeout_seconds, idempotency_key
+    +agent_version, priority, concurrency_key, metadata
     +from_request(request)$ RunStart
   }
   class RunRecord {
@@ -317,7 +319,7 @@ classDiagram
     +output, error: AgentError
     +awaiting: Interrupt
     +last_resolution: InterruptResolution
-    +checkpoint, attempt, created_at, updated_at
+    +checkpoint, attempt, worked_seconds, created_at, updated_at
     +final bool
     +from_start(start, status)$ RunRecord
   }
@@ -325,17 +327,24 @@ classDiagram
     <<frozen, closed>>
     +interrupt_id, tenant_id, run_id
     +reason: InterruptReason
-    +question, ui, expects, options
+    +question, ui, expects, ui_schema
+    +options: str | Option, multiple, component, props
     +payload, payload_ref: ArtifactRef, tool_call: ToolCall
     +assignee, deadline, escalate_to, created_at
     +from_paused(paused, context, reason, **fields)$ Interrupt
+    +option_values list
     +awaiting() dict
+  }
+  class Option {
+    <<frozen, closed>>
+    +value, label, description
   }
   class InterruptResolution {
     <<frozen, closed>>
     +interrupt_id, run_id
     +decision: InterruptDecision
-    +answer, reviewer, payload, resolved_at
+    +answer, reviewer, payload, comment
+    +remember: once | run, resolved_at
     +resolves(interrupt) bool
     +feedback_id str
     +to_feedback(interrupt, context) Feedback
@@ -372,6 +381,7 @@ classDiagram
     +tenant_id, agent_id, name, cadence
     +timezone, on_behalf_of, input
     +workspace_id, enabled, metadata
+    +timeout_seconds, agent_version
   }
   class Schedule {
     <<frozen, ignores unknown>>
@@ -385,6 +395,7 @@ classDiagram
   ScheduleSpec <|-- Schedule
   RunRecord --> Interrupt : awaiting
   RunRecord --> InterruptResolution : last_resolution
+  Interrupt --> Option : options
   InterruptResolution ..> Interrupt : resolves()
   InterruptResolution ..> Feedback : to_feedback()
   JudgeVerdict ..> Feedback : as_feedback()
@@ -392,8 +403,11 @@ classDiagram
 ```
 
 `Interrupt` validation: the question is not blank; an `APPROVAL` carries `tool_call`, a
-`CHOICE` carries `options`, a `REVIEW` carries `expects`; `escalate_to` needs a `deadline`.
-`InterruptResolution` validation: an `EDIT` carries the edited arguments in `payload`.
+`CHOICE` carries `options`, a `REVIEW` carries `expects`; `escalate_to` needs a `deadline`;
+option values are distinct and not blank; `multiple` needs `options` or `expects`; `props`
+needs a `component` (a component needs no `expects`).
+`InterruptResolution` validation: an `EDIT` carries the edited arguments in `payload`; only
+an `APPROVE` may be remembered for the run (`remember="run"`).
 `Feedback` validation: `target_id` is not blank, a `CORRECT` or `EDIT` verdict carries a
 `correction`, and `score` is a number in [0, 1] (strict, so `True` is not read as `1.0`).
 
