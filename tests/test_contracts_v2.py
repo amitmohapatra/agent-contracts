@@ -918,7 +918,7 @@ def test_everything_new_is_exported_and_the_version_is_the_installed_one() -> No
         "now",
     ):
         assert name in contracts.__all__ and hasattr(contracts, name), name
-    assert contracts.__version__ == md.version("trellis-contracts") == "0.5.0"
+    assert contracts.__version__ == md.version("trellis-contracts") == "0.5.1"
 
 
 @pytest.mark.parametrize(
@@ -998,3 +998,18 @@ def test_feedback_records_how_long_the_person_took(ctx: AgentExecutionContext) -
     assert took(asked + timedelta(minutes=3)) == 180.0
     # a reviewer's clock behind the asker's never yields a negative time
     assert took(asked - timedelta(seconds=5)) == 0.0
+
+
+def test_a_run_may_limit_its_working_time_and_name_its_agent_version() -> None:
+    start = RunStart(tenant_id="acme", agent_id="refunds", timeout_seconds=600, agent_version="v7")
+    assert (start.timeout_seconds, start.agent_version) == (600, "v7")
+    # unset, they say nothing: a start written for 0.5.0 reads the same
+    plain = RunStart(tenant_id="acme", agent_id="refunds")
+    assert plain.timeout_seconds is None and plain.agent_version is None
+    assert "timeout_seconds" not in plain.model_dump(exclude_unset=True)
+    with pytest.raises(ValueError, match="greater than 0"):
+        RunStart(tenant_id="acme", agent_id="refunds", timeout_seconds=0)
+    record = RunRecord(**start.model_dump())
+    assert record.worked_seconds == 0
+    with pytest.raises(ValueError, match="greater than or equal to 0"):
+        RunRecord(**start.model_dump(), worked_seconds=-1)

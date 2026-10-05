@@ -477,7 +477,7 @@ it merely installs.
 
 | Package | Version | Notes |
 |---|---|---|
-| `trellis-contracts` | **0.5.0** | this package: contracts v3 (ADR 0002) without the `RunStore` port (ADR 0004); `trellis.runs.RunsClient` is the runs client |
+| `trellis-contracts` | **0.5.1** | this package: contracts v3 (ADR 0002) without the `RunStore` port (ADR 0004), with run working-time limits and agent versions (ADR 0005); `trellis.runs.RunsClient` is the runs client |
 | `trellis-harness` | **0.4.0** | pins `trellis-contracts>=0.4` |
 | `agent-runs` and `trellis-runs` (its SDK) | **0.3.0** | pin `trellis-contracts>=0.4,<0.6` |
 | `trellis-memory` (Memory Service SDK) | **0.4.0** | what the harness's memory client is written against |
