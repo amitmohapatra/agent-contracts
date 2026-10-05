@@ -133,10 +133,26 @@ class RunStart(BaseModel):
         description="Absolute time the run must end by (ISO 8601, timezone-aware); None for "
         "no deadline.",
     )
+    timeout_seconds: float | None = Field(
+        default=None,
+        gt=0,
+        description="Most working time the run may take, in seconds: time RUNNING, across "
+        "attempts, not time queued or waiting for a person. Past it the run ends TIMEOUT. "
+        "None: no limit of its own (a service maximum may still apply).",
+        examples=[600],
+    )
     idempotency_key: str | None = Field(
         default=None,
         description="Key that makes a retried start return the same run instead of a second "
         "one; from_request derives it from the context.",
+    )
+    agent_version: str | None = Field(
+        default=None,
+        max_length=128,
+        description="Version of the agent's code that started the run (a release or deploy "
+        "id), kept for audit and to tell which code a resumed run continues on; None when "
+        "not known.",
+        examples=["2026.10.05-3f2a1c"],
     )
     metadata: dict[str, Any] = Field(
         default_factory=dict,
@@ -458,6 +474,12 @@ class RunRecord(RunStart):
         ge=1,
         description="1-based attempt number; one more each time the run resumes or is "
         "re-queued after a lapsed lease.",
+    )
+    worked_seconds: float = Field(
+        default=0,
+        ge=0,
+        description="Working time so far, in seconds: time RUNNING across every attempt, "
+        "what timeout_seconds limits.",
     )
     created_at: AwareDatetime = Field(
         default_factory=now,
