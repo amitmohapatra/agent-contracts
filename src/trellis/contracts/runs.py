@@ -873,8 +873,10 @@ class ScheduleSpec(BaseModel):
     ``cadence`` is a cron expression or one of agent-runs' named buckets (``hourly``,
     ``daily``, ``weekly``, ``weekdays``, ``manual``) evaluated in ``timezone``; agent-runs
     validates the expression and its floor. ``on_behalf_of`` is required: a run fired with
-    nobody present acts as the person who set the schedule, never wider. ``timeout_seconds``
-    and ``agent_version`` are copied into the :class:`RunStart` of every fire."""
+    nobody present acts as the person who set the schedule, never wider. ``timeout_seconds``,
+    ``agent_version``, ``priority`` and ``concurrency_key`` are copied into the
+    :class:`RunStart` of every fire, and ``metadata`` into its ``metadata`` under the fire's
+    own keys, so a scheduled run carries everything a started one can."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -922,9 +924,28 @@ class ScheduleSpec(BaseModel):
         "run's RunStart.agent_version; None when not known.",
         examples=["2026.10.05-3f2a1c"],
     )
+    priority: int = Field(
+        default=0,
+        ge=-1000,
+        le=1000,
+        description="Claim order among the tenant's queued runs: higher first, then the oldest; "
+        "-1000 to 1000, default 0.",
+        examples=[10],
+    )
+    concurrency_key: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=200,
+        description="Runs of the tenant sharing this key run only a few at a time (the run "
+        "store's limit, one unless its operator says otherwise); the rest wait QUEUED. None: "
+        "no such limit.",
+        examples=["thread:chat-42"],
+    )
     metadata: dict[str, Any] = Field(
         default_factory=dict,
-        description="Free-form JSON object kept with the schedule; the contract never reads it.",
+        description="Free-form JSON object kept with the schedule; the contract never reads it. "
+        "agent-runs copies it into each fired run's RunStart.metadata, under the fire's own "
+        "keys, which win on conflict.",
     )
 
     @field_validator("name", "cadence", "on_behalf_of")

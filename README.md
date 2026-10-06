@@ -343,7 +343,7 @@ and LangGraph's suspend signals by class name, and `RETRYABLE_CATEGORIES`.
 | `InterruptResolution` | How an interrupt was answered, with the reviewer's `comment` and how far an approval reaches (`remember`: `once`, or the rest of the `run`). `resolves` checks it answers that interrupt, and `to_feedback` gives the feedback for a tool-call decision |
 | `InterruptRemember` | `InterruptResolution.remember`: `once` or `run` |
 | `InterruptDecision` | `ANSWER`, `APPROVE`, `REJECT`, `EDIT`, `CANCEL` |
-| `ScheduleSpec` | A standing intent: which agent, what input, which cadence and timezone, on whose behalf; `timeout_seconds` and `agent_version` are copied into every fired run |
+| `ScheduleSpec` | A standing intent: which agent, what input, which cadence and timezone, on whose behalf; `timeout_seconds`, `agent_version`, `priority` and `concurrency_key` are copied into every fired run, and `metadata` into its metadata under the fire's own keys |
 | `Schedule` | A schedule as agent-runs keeps it: the spec plus its id, author and the history of its fires |
 
 ### `feedback` and `evaluation`
@@ -490,9 +490,9 @@ it merely installs.
 
 | Package | Version | Notes |
 |---|---|---|
-| `trellis-contracts` | **0.6.0** | this package: contracts v3 (ADR 0002) without the `RunStore` port (ADR 0004), with run working-time limits and agent versions (ADR 0005), and interrupts v2, decision comments and scope, queue priority and concurrency keys, and schedules' run limits (ADR 0006); `trellis.runs.RunsClient` is the runs client |
+| `trellis-contracts` | **0.6.1** | this package: contracts v3 (ADR 0002) without the `RunStore` port (ADR 0004), with run working-time limits and agent versions (ADR 0005), interrupts v2, decision comments and scope, queue priority and concurrency keys, and schedules' run limits (ADR 0006), and schedules that carry their runs' queue order and metadata (ADR 0007); `trellis.runs.RunsClient` is the runs client |
 | `trellis-harness` | **0.4.0** | pins `trellis-contracts>=0.4` |
-| `agent-runs` and `trellis-runs` (its SDK) | **0.4.0** | pin `trellis-contracts>=0.6,<0.7` |
+| `agent-runs` and `trellis-runs` (its SDK) | **0.4.0** | pin `trellis-contracts>=0.6.1,<0.7` |
 | `trellis-memory` (Memory Service SDK) | **0.4.0** | what the harness's memory client is written against |
 | `pydantic` | `>=2.13,<3` | the only runtime dependency |
 | Python | `>=3.12` | `StrEnum`, PEP 695 generics |
@@ -504,10 +504,11 @@ interrupts, feedback, judging and agent cards), [0002](docs/adr/0002-contracts-v
 `ErrorSource` and the other literals, and how `AgentError.of` reads SDK errors) and
 [0004](docs/adr/0004-no-run-store-port.md) (the `RunStore` port is gone; `trellis.runs` is
 the runs client), [0005](docs/adr/0005-run-working-time-and-agent-version.md) (a run's
-working-time limit and agent version) and
+working-time limit and agent version),
 [0006](docs/adr/0006-interrupts-v2-and-queue-order.md) (labelled options, several picks, the
 asker's own screen, decision comments and scope, queue priority and concurrency keys,
-schedules' run limits).
+schedules' run limits) and [0007](docs/adr/0007-schedules-carry-queue-order-and-metadata.md)
+(a schedule's priority, concurrency key and metadata reach every run it fires).
 
 ## Development
 

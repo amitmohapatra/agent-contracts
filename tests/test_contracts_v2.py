@@ -922,7 +922,7 @@ def test_everything_new_is_exported_and_the_version_is_the_installed_one() -> No
         "now",
     ):
         assert name in contracts.__all__ and hasattr(contracts, name), name
-    assert contracts.__version__ == md.version("trellis-contracts") == "0.6.0"
+    assert contracts.__version__ == md.version("trellis-contracts") == "0.6.1"
 
 
 @pytest.mark.parametrize(
@@ -1134,3 +1134,39 @@ def test_a_schedule_carries_the_working_time_limit_and_version_of_its_runs() -> 
         ScheduleSpec(**{**spec.model_dump(), "timeout_seconds": 0})
     with pytest.raises(ValidationError, match="128"):
         ScheduleSpec(**{**spec.model_dump(), "agent_version": "v" * 129})
+
+
+# --------------------------------------------------------------------------- 0.6.1 (ADR 0007)
+
+
+def test_a_schedule_carries_the_queue_order_of_its_runs() -> None:
+    spec = ScheduleSpec(
+        tenant_id="acme",
+        agent_id="digest",
+        name="Morning digest",
+        cadence="daily",
+        on_behalf_of="u1",
+        priority=10,
+        concurrency_key="digest:acme",
+        metadata={"team": "finance"},
+    )
+    schedule = Schedule.from_spec(spec)
+    assert (schedule.priority, schedule.concurrency_key) == (10, "digest:acme")
+    assert schedule.metadata == {"team": "finance"}
+    bare = ScheduleSpec(tenant_id="t", agent_id="a", name="n", cadence="daily", on_behalf_of="u")
+    assert bare.priority == 0 and bare.concurrency_key is None
+    for priority in (-1001, 1001):
+        with pytest.raises(ValidationError, match="priority"):
+            ScheduleSpec(**{**spec.model_dump(), "priority": priority})
+    for key in ("", "k" * 201):
+        with pytest.raises(ValidationError, match="concurrency_key"):
+            ScheduleSpec(**{**spec.model_dump(), "concurrency_key": key})
+
+
+def test_a_schedule_queue_order_fields_match_run_start() -> None:
+    for name in ("priority", "concurrency_key"):
+        on_spec, on_start = ScheduleSpec.model_fields[name], RunStart.model_fields[name]
+        assert on_spec.annotation == on_start.annotation, name
+        assert on_spec.default == on_start.default, name
+        assert on_spec.description == on_start.description, name
+        assert on_spec.metadata == on_start.metadata, name

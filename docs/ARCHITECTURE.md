@@ -6,8 +6,9 @@
 This page shows how the pieces fit, who uses which, and the one state machine the package
 owns. The decisions behind it are ADRs [0001](adr/0001-contracts-v2.md),
 [0002](adr/0002-contracts-v3.md), [0003](adr/0003-documented-fields-and-closed-vocabularies.md),
-[0004](adr/0004-no-run-store-port.md), [0005](adr/0005-run-working-time-and-agent-version.md)
-and [0006](adr/0006-interrupts-v2-and-queue-order.md).
+[0004](adr/0004-no-run-store-port.md), [0005](adr/0005-run-working-time-and-agent-version.md),
+[0006](adr/0006-interrupts-v2-and-queue-order.md) and
+[0007](adr/0007-schedules-carry-queue-order-and-metadata.md).
 
 ## In the platform
 
@@ -382,6 +383,7 @@ classDiagram
     +timezone, on_behalf_of, input
     +workspace_id, enabled, metadata
     +timeout_seconds, agent_version
+    +priority, concurrency_key
   }
   class Schedule {
     <<frozen, ignores unknown>>
