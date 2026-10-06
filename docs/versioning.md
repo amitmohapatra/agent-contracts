@@ -9,7 +9,7 @@ when it merely installs. The pins below are copied from each package's `pyprojec
 | Package | Version | Requires `trellis-contracts` | Notes |
 |---|---|---|---|
 | `trellis-contracts` | **0.6.1** | — | this package |
-| `trellis-harness` (agent-harness) | **0.4.0** | `>=0.6.0,<0.7` | builds and reads every record; installs the sibling checkout (`../agent-contracts`) in development |
+| `trellis-harness` (agent-harness) | **0.4.0** | `>=0.6.1,<0.7` | builds and reads every record; installs the sibling checkout (`../agent-contracts`) in development |
 | `agent-runs` and `trellis-runs` (its SDK) | **0.4.0** | `>=0.6.1,<0.7` | the service's create body subclasses `RunStart`; its OpenAPI document embeds these models |
 | `trellis-memory` (Memory Service SDK) | **0.4.0** | not a dependency | sends a `Feedback` as it is; its exceptions are classified by class name |
 | `trellis-memory-service` (agent-memory-service) | **0.3.0** | not a dependency | `POST /v1/feedback` takes the `Feedback` shape; `scope_fields()` returns its `Scope` keywords |
