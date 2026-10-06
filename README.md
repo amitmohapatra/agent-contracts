@@ -151,6 +151,7 @@ from trellis.contracts import (
     InterruptDecision,
     InterruptReason,
     InterruptResolution,
+    Option,
     RunEvent,
     RunOutcome,
 )
@@ -161,7 +162,7 @@ interrupt = Interrupt.from_paused(
     context=ctx,
     reason=InterruptReason.CHOICE,
     ui="choice",
-    options=["Acme", "Globex"],
+    options=["Acme", Option(value="globex", label="Globex GmbH", description="EU stock")],
     assignee="role:procurement",
 )
 event = RunEvent.finished(ctx, RunOutcome.INTERRUPT, sequence=7, interrupt=interrupt)
@@ -169,10 +170,12 @@ answer = InterruptResolution(
     interrupt_id=interrupt.interrupt_id,
     run_id=interrupt.run_id,
     decision=InterruptDecision.ANSWER,
-    answer="Globex",
+    answer="globex",  # an option's value, never its label
+    comment="Acme is out of stock",
 )
 assert answer.resolves(interrupt)
-assert event.data["interrupt"]["options"] == ["Acme", "Globex"]
+assert interrupt.option_values == ["Acme", "globex"]
+assert event.data["interrupt"]["options"][0] == "Acme"  # a plain string stays one
 ```
 
 ## Each group, in each way
@@ -328,17 +331,19 @@ and LangGraph's suspend signals by class name, and `RETRYABLE_CATEGORIES`.
 | Name | What it is |
 | --- | --- |
 | `RunStatus` | Where a run is: `QUEUED`, `RUNNING`, `PAUSED` or a final status spelled like `AgentStatus`. `can_become` is the state machine and `final` says whether it has ended |
-| `RunStart` | What starting a run records. It is agent-runs' create body, and `from_request` builds it from an `AgentRequest` |
+| `RunStart` | What starting a run records. It is agent-runs' create body, and `from_request` builds it from an `AgentRequest`. Optional: `deadline`, `timeout_seconds` (working time), `agent_version`, and how a queued run waits its turn: `priority` (higher first) and `concurrency_key` (runs sharing it run a few at a time) |
 | `RunRecord` | A run as a store keeps it: the start plus status, output, error, the interrupt it waits on, the last resolution, an opaque `checkpoint` and the attempt |
 | `RunEvent` | One event of a run's stream, in the AG-UI vocabulary, ordered by `sequence` within an `attempt` |
 | `RunEventType` | The event vocabulary: AG-UI's names plus `CONTEXT_LOADED` and `INTERRUPT` |
 | `RunOutcome` | How a run finished, as `RUN_FINISHED` reports it. `from_status` maps a settled status to it |
-| `Interrupt` | The record of a paused run: the question, the expected answer shape, the UI hint, options, payload, the tool call under approval, the assignee, the deadline and the escalation |
+| `Interrupt` | The record of a paused run: the question, the expected answer shape (`expects`) and its widget hints (`ui_schema`), the UI hint (`ui`), options (plain strings or `Option`s) and whether several may be picked (`multiple`), the asker's own screen (`component`, `props`), payload, the tool call under approval, the assignee, the deadline and the escalation |
+| `Option` | One choice an interrupt offers: the `value` an answer carries, and the `label` and `description` a person sees |
 | `InterruptReason` | `QUESTION`, `APPROVAL`, `REVIEW`, `CHOICE`, `AUTH` |
 | `InterruptUI` | The control a surface renders, `Interrupt.ui`: `approve`, `form`, `table`, `diff`, `choice` |
-| `InterruptResolution` | How an interrupt was answered. `resolves` checks it answers that interrupt, and `to_feedback` gives the feedback for a tool-call decision |
+| `InterruptResolution` | How an interrupt was answered, with the reviewer's `comment` and how far an approval reaches (`remember`: `once`, or the rest of the `run`). `resolves` checks it answers that interrupt, and `to_feedback` gives the feedback for a tool-call decision |
+| `InterruptRemember` | `InterruptResolution.remember`: `once` or `run` |
 | `InterruptDecision` | `ANSWER`, `APPROVE`, `REJECT`, `EDIT`, `CANCEL` |
-| `ScheduleSpec` | A standing intent: which agent, what input, which cadence and timezone, on whose behalf |
+| `ScheduleSpec` | A standing intent: which agent, what input, which cadence and timezone, on whose behalf; `timeout_seconds` and `agent_version` are copied into every fired run |
 | `Schedule` | A schedule as agent-runs keeps it: the spec plus its id, author and the history of its fires |
 
 ### `feedback` and `evaluation`
@@ -435,6 +440,14 @@ call), a `REVIEW` (carries in `expects` what a correction looks like), a `CHOICE
 `options`) or an `AUTH`. `assignee` is who answers (`user:u1`, `role:procurement`). Past the
 `deadline` the run goes to `escalate_to`, or times out when nobody is named.
 
+An option is a plain string or an `Option(value, label, description)`; the answer carries
+the value. With `multiple=True` the answer is a list of distinct values. `component` names
+the asker's own screen, which a surface that has it renders with `props` passed as they are;
+any other surface renders `ui`. `ui_schema` gives widget hints for the form `expects`
+describes (the react-jsonschema-form `uiSchema` convention). An answer is checked against
+`expects` and the options by agent-runs (`trellis.runs.answers`), also when a component
+collected it.
+
 The executor pauses with an opaque `checkpoint` (`RunsClient.pause(interrupt, checkpoint=)`):
 its resume journal and the framework's own resume state. The record returns it on every read
 and claim, so another worker resumes without repeating side effects. Finishing clears it.
@@ -449,7 +462,7 @@ rejected at the far end of an HTTP call.
 ## Wire conventions
 
 * **What the platform writes and streams refuses unknown fields**: `RunStart`, `RunEvent`,
-  `Interrupt`, `InterruptResolution`, `Feedback`, `JudgeVerdict`, `ScheduleSpec` and
+  `Interrupt`, `Option`, `InterruptResolution`, `Feedback`, `JudgeVerdict`, `ScheduleSpec` and
   `AgentExecutionContext`. A
   producer's typo is an error, not a silently dropped field. What is *read back* from a store
   (`RunRecord`, `Schedule`) or from another agent (`AgentCard`) **ignores** unknown fields, so
@@ -459,7 +472,7 @@ rejected at the far end of an HTTP call.
   (units, formats, allowed values), so agent-runs' OpenAPI document describes every property.
   `tests/test_field_docs.py` fails on a field without one.
 * **Closed vocabularies are typed**: statuses, kinds and decisions are `StrEnum`s, and
-  `ErrorSource`, `ToolSource`, `ObservationKind` and `InterruptUI` are `Literal`s, so a typo
+  `ErrorSource`, `ToolSource`, `ObservationKind`, `InterruptUI` and `InterruptRemember` are `Literal`s, so a typo
   is a validation error. ADR 0003 lists the `str` fields left open on purpose.
 * **Payloads that leave the process are unredacted** (`RunEvent.data`,
   `Interrupt.awaiting()`). The surface that sends them passes them through a
@@ -477,9 +490,9 @@ it merely installs.
 
 | Package | Version | Notes |
 |---|---|---|
-| `trellis-contracts` | **0.5.1** | this package: contracts v3 (ADR 0002) without the `RunStore` port (ADR 0004), with run working-time limits and agent versions (ADR 0005); `trellis.runs.RunsClient` is the runs client |
+| `trellis-contracts` | **0.6.0** | this package: contracts v3 (ADR 0002) without the `RunStore` port (ADR 0004), with run working-time limits and agent versions (ADR 0005), and interrupts v2, decision comments and scope, queue priority and concurrency keys, and schedules' run limits (ADR 0006); `trellis.runs.RunsClient` is the runs client |
 | `trellis-harness` | **0.4.0** | pins `trellis-contracts>=0.4` |
-| `agent-runs` and `trellis-runs` (its SDK) | **0.3.0** | pin `trellis-contracts>=0.4,<0.6` |
+| `agent-runs` and `trellis-runs` (its SDK) | **0.4.0** | pin `trellis-contracts>=0.6,<0.7` |
 | `trellis-memory` (Memory Service SDK) | **0.4.0** | what the harness's memory client is written against |
 | `pydantic` | `>=2.13,<3` | the only runtime dependency |
 | Python | `>=3.12` | `StrEnum`, PEP 695 generics |
@@ -490,7 +503,11 @@ interrupts, feedback, judging and agent cards), [0002](docs/adr/0002-contracts-v
 [0003](docs/adr/0003-documented-fields-and-closed-vocabularies.md) (field descriptions,
 `ErrorSource` and the other literals, and how `AgentError.of` reads SDK errors) and
 [0004](docs/adr/0004-no-run-store-port.md) (the `RunStore` port is gone; `trellis.runs` is
-the runs client).
+the runs client), [0005](docs/adr/0005-run-working-time-and-agent-version.md) (a run's
+working-time limit and agent version) and
+[0006](docs/adr/0006-interrupts-v2-and-queue-order.md) (labelled options, several picks, the
+asker's own screen, decision comments and scope, queue priority and concurrency keys,
+schedules' run limits).
 
 ## Development
 
