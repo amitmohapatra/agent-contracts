@@ -530,10 +530,10 @@ def test_a_judge_verdict_becomes_judge_feedback_on_the_answer() -> None:
     assert feedback.reviewer == "judge:grounded" and feedback.score == 0.8
     assert feedback.metadata["method"] == "grounded" and feedback.metadata["target"] == "result"
     assert feedback.trace_id == TRACE
-    bad = JudgeVerdict(score=0.2, method=JudgeMethod.LLM, model="gpt-4.1-nano")
+    bad = JudgeVerdict(score=0.2, method=JudgeMethod.LLM, model="judge-model")
     assert (
         bad.as_feedback(event).verdict is FeedbackVerdict.REJECT
-        and bad.reviewer == "judge:gpt-4.1-nano"
+        and bad.reviewer == "judge:judge-model"
     )
     on_run = bad.as_feedback(event.model_copy(update={"result_ref": None}))
     assert on_run.target_id == "run_1" and on_run.metadata["target"] == "run"
