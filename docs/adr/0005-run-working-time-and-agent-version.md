@@ -1,6 +1,6 @@
 # ADR 0005: A run's working-time limit, its working time, and the agent version that ran it
 
-**Status:** accepted · **Date:** 2026-10-05 · **Amends:** [ADR 0002](0002-contracts-v3.md)
+**Status:** accepted, amended by [ADR 0006](0006-interrupts-v2-and-queue-order.md) · **Date:** 2026-10-05 · **Amends:** [ADR 0002](0002-contracts-v3.md)
 
 ## Context
 A run could only be bounded by `RunStart.deadline`, an absolute time. That suits "finish by

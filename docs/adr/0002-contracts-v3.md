@@ -1,6 +1,8 @@
 # ADR 0002: Contracts v3, queued runs and only the ports something implements
 
-**Status:** accepted, amended by [ADR 0003](0003-documented-fields-and-closed-vocabularies.md) and [ADR 0004](0004-no-run-store-port.md) · **Date:** 2026-09-30 · **Amends:** [ADR 0001](0001-contracts-v2.md)
+**Status:** accepted, amended by [ADR 0003](0003-documented-fields-and-closed-vocabularies.md),
+[ADR 0004](0004-no-run-store-port.md), [ADR 0005](0005-run-working-time-and-agent-version.md) and
+[ADR 0006](0006-interrupts-v2-and-queue-order.md) · **Date:** 2026-09-30 · **Amends:** [ADR 0001](0001-contracts-v2.md)
 
 ## Context
 The platform overhaul (Trellis `OVERHAUL-SPEC.md` §1, §2, §5) removes the Temporal

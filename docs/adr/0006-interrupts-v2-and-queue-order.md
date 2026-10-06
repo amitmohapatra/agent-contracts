@@ -1,6 +1,6 @@
 # ADR 0006: Interrupts v2 (labelled options, several picks, own screens), decision scope, and queue order
 
-**Status:** accepted · **Date:** 2026-10-05 · **Amends:** [ADR 0002](0002-contracts-v3.md),
+**Status:** accepted, amended by [ADR 0007](0007-schedules-carry-queue-order-and-metadata.md) · **Date:** 2026-10-05 · **Amends:** [ADR 0002](0002-contracts-v3.md),
 [ADR 0005](0005-run-working-time-and-agent-version.md)
 
 ## Context
