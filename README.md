@@ -2,41 +2,42 @@
 
 The types an agent must accept and return. No runtime, no transport, no I/O.
 
-The platform's agent harness (`agent-harness`), its run service (`agent-runs`) and that
-service's SDK (`trellis.runs`) build on this package. It depends on nothing but `pydantic`, and that is the point: the contract can be read,
-versioned and reasoned about without pulling in a gateway, a database or an agent framework.
-It is importable as `trellis.contracts`.
+`trellis-contracts` (imported as `trellis.contracts`) is the vocabulary the five Trellis repos
+share. **Records** travel between processes: a run, a pause, its answer, a tool call, an event,
+a judgement, an agent card. **Ports** are the outbound dependencies, written as `Protocol`s,
+so an adapter can be built against the seam. The only dependency is `pydantic`, so the
+contract can be read, versioned and reasoned about without a gateway, a database or an agent
+framework.
 
-It holds two kinds of thing. **Records** travel between processes: a request, a result, a run
-event, a pause, a judgement. **Ports** are the outbound dependencies, written as `Protocol`s,
-so a harness can be built against the seam and a service swapped in behind it.
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) has the diagrams: who uses what, how the modules
-and ports relate, the run lifecycle, and the main models.
+## Start here
+
+1. **Install** it: `uv add trellis-contracts` ([Install](#install)).
+2. **Read the [Quickstart](#quickstart)**: a context, a request, a response, a run record,
+   and a run that pauses for a person.
+3. **Run the examples**: `make examples` runs nine pure scripts, from the simplest record to
+   the full pause-and-resume lifecycle ([examples/](examples/README.md)).
+4. **Pick your types** with [Which type do I use?](#which-type-do-i-use), and see how each
+   block takes them in [Each group, in each way](#each-group-in-each-way).
+5. **Go deeper** in the [documentation](#documentation): the architecture and its diagrams,
+   every export, versions and the ADRs.
 
 ## Where this fits: two ways to use Trellis
 
-Trellis is used in one of two ways, and each block works in both:
+Trellis is five repos: **agent-harness** runs your agent, **agent-runs** keeps runs durable
+(the inbox, schedules, workers, webhooks), **agent-memory-service** gives agents memory,
+**bifrost-sdk** reaches models and MCP tools through the Bifrost gateway, and **this package**
+is the types they agree on. [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#in-the-platform)
+draws how they connect.
+
+Each block works in both ways of using Trellis:
 
 - **Way 1, wrapped.** `from trellis import Harness; h = Harness(); agent = h.wrap(my_agent)`.
   The harness runs your agent (LangGraph, Deep Agents, OpenAI Agents SDK, Claude Agent SDK,
-  a plain function) and uses every block automatically: memory context, recording and
-  feedback; durable runs, the inbox, schedules and the worker in agent-runs; governance of
-  tool calls; models and MCP tools through Bifrost; evals; the AG-UI and A2A surfaces.
-- **Way 2, pluggable blocks.** Keep your framework untouched and import only the blocks you
-  want: `trellis.memory` (`MemoryClient`), `trellis.runs` (`RunsClient`, `Worker`,
-  `webhooks.verify_signature`), `trellis.contracts` (the shared types), `bifrost_sdk` (models
-  and MCP tools through Bifrost), and from the harness repo `trellis.harness.governance`
-  (`Governance.from_env`, `check`, `governed`), `trellis.harness.evals` (`EvalServices`,
-  `evaluate`, `judge`) and `trellis.harness.a2a.remote`.
-
-A package shipped from its own repo is top-level `trellis.X`; anything from the harness repo
-is `trellis.harness.X`. `bifrost_sdk` (pip `bifrost-sdk`) is the exception: it keeps its own,
-older name.
-
-**This package** is the vocabulary the blocks share: the records that cross a process
-boundary (a run, a pause, its answer, a judgement, an agent card) and the ports an adapter is
-written against. It has no runtime, so it is never switched on or off: in both ways it is how
-the blocks agree on what goes in and what comes out.
+  a plain function) and builds every record for you.
+- **Way 2, pluggable blocks.** Keep your framework, import only the blocks you want
+  (`trellis.runs`, `trellis.memory`, `bifrost_sdk`, and from the harness repo
+  `trellis.harness.governance`, `trellis.harness.evals`, `trellis.harness.a2a.remote`), and
+  hand them these types yourself.
 
 | | What happens with `trellis.contracts` |
 |---|---|
@@ -83,11 +84,22 @@ await memory.feedback(answer.to_feedback(asked, ctx))  # what memory learns appr
   service or governance yourself: build these types once and pass them as they are.
   [Each group, in each way](#each-group-in-each-way) says which block takes which type.
 
-Harness docs: [the two ways](https://github.com/amitmohapatra/agent-harness/blob/main/README.md#two-ways-to-use-trellis) · [every page](https://github.com/amitmohapatra/agent-harness/blob/main/docs/README.md) ·
-blocks: [contracts](https://github.com/amitmohapatra/agent-harness/blob/main/docs/blocks/contracts.md), [memory](https://github.com/amitmohapatra/agent-harness/blob/main/docs/blocks/memory.md), [runs](https://github.com/amitmohapatra/agent-harness/blob/main/docs/blocks/runs.md),
-[governance](https://github.com/amitmohapatra/agent-harness/blob/main/docs/blocks/governance.md), [evaluation](https://github.com/amitmohapatra/agent-harness/blob/main/docs/blocks/evaluation.md), [A2A](https://github.com/amitmohapatra/agent-harness/blob/main/docs/blocks/a2a.md) ·
-recipes: [LangGraph](https://github.com/amitmohapatra/agent-harness/blob/main/docs/blocks/langgraph.md), [OpenAI Agents SDK](https://github.com/amitmohapatra/agent-harness/blob/main/docs/blocks/openai-agents.md),
-[Claude Agent SDK](https://github.com/amitmohapatra/agent-harness/blob/main/docs/blocks/claude-agent-sdk.md).
+**Why one set of types.** One `Interrupt` is the pause in agent-runs, the inbox entry a
+reviewer reads (`RunSummary.awaiting`) and, with its `InterruptResolution`, the `Feedback` the
+memory service learns approval rules from, with no translation between them. One
+`AgentExecutionContext` is the run, the memory scope and the feedback's attribution. A run your
+LangGraph code started and a run a wrapped agent started are the same `RunRecord`: one inbox,
+one webhook receiver, one resolution format. agent-runs' OpenAPI document is built from these
+models, so a record that changes is a new version the pins must admit
+([docs/versioning.md](docs/versioning.md)).
+
+Harness docs: [the two ways](https://github.com/amitmohapatra/agent-harness/blob/main/README.md#two-ways-to-use-trellis) ·
+[every page](https://github.com/amitmohapatra/agent-harness/blob/main/docs/README.md) ·
+blocks: [memory](https://github.com/amitmohapatra/agent-harness/blob/main/docs/blocks/memory.md),
+[runs](https://github.com/amitmohapatra/agent-harness/blob/main/docs/blocks/runs.md),
+[governance](https://github.com/amitmohapatra/agent-harness/blob/main/docs/blocks/governance.md),
+[evaluation](https://github.com/amitmohapatra/agent-harness/blob/main/docs/blocks/evaluation.md),
+[A2A](https://github.com/amitmohapatra/agent-harness/blob/main/docs/blocks/a2a.md).
 
 ## Install
 
@@ -97,7 +109,8 @@ uv add trellis-contracts
 uv add --editable ../agent-contracts
 ```
 
-It needs Python 3.12 or newer and `pydantic>=2.13,<3`.
+It needs Python 3.12 or newer and `pydantic>=2.13,<3`. It has no settings and reads no
+environment variable ([docs/configuration.md](docs/configuration.md)).
 
 ## Quickstart
 
@@ -178,6 +191,8 @@ assert interrupt.option_values == ["Acme", "globex"]
 assert event.data["interrupt"]["options"][0] == "Acme"  # a plain string stays one
 ```
 
+Both blocks run as they are. So do the [examples](examples/README.md): `make examples`.
+
 ## Each group, in each way
 
 What each exported group is, when you touch it wrapped (mostly never: the harness builds the
@@ -197,28 +212,6 @@ means no sibling package takes that type today; it is there for code of your own
 | `descriptors`, `a2a` | `AgentDescriptor`, `SkillDescriptor`, `AgentCard` and its parts | never: `serve_a2a` publishes the card with `a2a-sdk` | build or read a card in A2A code of your own (`AgentCard.from_descriptor(...).to_a2a()`, `AgentCard.from_a2a(json)`); `trellis.harness.a2a.remote` reads cards with `a2a-sdk` instead (no block takes these) |
 | `ids` | `new_id`, `stable_id`, `safe_id`, `now` | never | `stable_id(...)` or `ctx.idempotency_key(...)` for a key a retry repeats (`RunStart.idempotency_key`, `ToolCall.idempotency_key`) |
 | ports | the 12 `Protocol`s in `trellis.contracts.ports` | never; the harness's `Redactor` is a `TelemetryRedactor` | only when you write an adapter of your own; no block requires one |
-
-## One definition on every wire
-
-The same record means the same thing to every block because it is defined once, here:
-
-* **One definition.** agent-runs' service and its SDK (`trellis.runs`) and the harness import
-  these models; none redefines them. The memory service does not import the package but
-  speaks its shapes: `POST /v1/feedback` takes a `Feedback` unchanged, `scope_fields()`
-  returns its `Scope` keywords, and `OBSERVATION_KINDS` is its `ObservationKind`.
-* **The API is built from them.** agent-runs' OpenAPI document embeds these models
-  (`RunCreate` subclasses `RunStart`; `RunRecord`, `Interrupt`, `InterruptResolution`,
-  `Schedule`, `ScheduleSpec`, `AgentError`, `ArtifactRef` are used as they are). Its CI fails
-  when the committed document differs from the code's, and `trellis.runs`' tests check every
-  model it sends or parses against that document.
-* **Strict where it is written, lenient where it is read.** What a producer writes refuses
-  unknown fields (`extra="forbid"`) and is frozen: a typo fails at the sender, not three hops
-  later. What is read back from a store or a peer ignores unknown fields, so a newer peer
-  does not break an older reader ([Wire conventions](#wire-conventions)).
-* **Versioned pins.** agent-runs and `trellis-runs` pin `trellis-contracts>=0.4,<0.6` and the
-  harness `>=0.4`, so a release that changes a record is a new minor version the pins must
-  admit before anyone sends it; [Versions](#versions-and-what-goes-with-what) lists what goes
-  with what, and each change has its ADR.
 
 ## Which type do I use?
 
@@ -253,272 +246,29 @@ does these for you; the rows are what you write when you plug the blocks in your
 | make a write idempotent across retries | `ctx.idempotency_key(*parts)`, or `stable_id(*parts)` |
 | log with the run's identifiers | `ctx.log_fields()` |
 
-## Everything it exports
+## Documentation
 
-Every name below is in `trellis.contracts.__all__` and importable from `trellis.contracts`.
-
-### `context`
-
-| Name | What it is |
-| --- | --- |
-| `AgentExecutionContext` | The frozen identity and lineage of one execution: tenant, user, thread, agent, run lineage, correlation ids and an absolute deadline. Build it with `create`, derive a child with `for_agent`, and use `scope_fields()`, `idempotency_key()` and `log_fields()` |
-
-### `messages`
-
-| Name | What it is |
-| --- | --- |
-| `AgentRequest` | What an agent was asked to do: objective, input, context, requested skills, constraints and references. `query` is the text a memory retrieval should use |
-| `AgentResponse` | What an agent produced: status, data, claims, evidence, artifacts, memory observations, recommended actions, warnings, metrics and error |
-| `AgentStatus` | How an execution ended (`SUCCESS`, `PARTIAL`, `ERROR`, `TIMEOUT`, `CANCELLED`, `REJECTED`), or `PAUSED`. `ok` is true for `SUCCESS` and `PARTIAL` |
-
-### `artifacts`
-
-| Name | What it is |
-| --- | --- |
-| `ArtifactRef` | A pointer to content stored outside the result |
-| `EvidenceRef` | Where a claim came from, in the Memory Service's evidence shape |
-| `Claim` | One assertion an agent made, with the ids of its evidence |
-| `RecommendedAction` | A next step the agent proposes, with a short rationale |
-| `MemoryObservation` | Something the agent wants remembered. Its `kind` is checked against `OBSERVATION_KINDS` |
-| `ObservationKind` | The `kind` literal: `MESSAGE`, `FILE`, `AGENT_RESULT`, `TOOL_RESULT`, `DECISION`, `FEEDBACK`, `EVENT`, `IMPORT` |
-| `AgentWarning` | A non-fatal problem the caller should see |
-| `OBSERVATION_KINDS` | The observation kinds the Memory Service accepts |
-
-### `tool`
-
-| Name | What it is |
-| --- | --- |
-| `ToolSpec` | What a tool is: name, schemas, source or server, idempotency, side effects and authorization metadata |
-| `ToolCall` | One call: the tool, its arguments, and an optional idempotency key |
-| `ToolOutcome` | The normalised result of a call. Assignments are validated |
-| `ToolStatus` | `ok`, `error`, `timeout`, `rejected`, `cancelled`. It is a `StrEnum`, so `outcome.status == "ok"` holds |
-| `ToolSource` | Where a tool comes from, `ToolSpec.source`: `local`, `mcp`, `memory`, `openapi`, `a2a` |
-
-### `model`
-
-| Name | What it is |
-| --- | --- |
-| `ModelRequest` | One model invocation: model, provider, prompt or messages, params and tools |
-| `ModelResponse` | The normalised result. `raw` keeps the provider object, and `coerce` wraps any provider response |
-| `ModelUsage` | Token and cost accounting. `extract` reads the common provider spellings and never invents counts |
-
-### `errors`
-
-| Name | What it is |
-| --- | --- |
-| `AgentError` | A normalised, serialisable failure with `category`, `retryable` and `source`. `AgentError.of(exc)` builds one from any exception, keeping the exception's own `retryable` when it has one |
-| `ErrorCategory` | The closed set of failure categories |
-| `ErrorSource` | The components that report failures, `AgentError.source`: `agent-runs`, `tools`, `mcp`, `a2a`, `memory` and the harness's adapters (`function`, `langgraph`, `openai_agents`, `claude_agent_sdk`, `react`). A qualified `mcp.<tool>` is stored as `mcp` with the tool in `details.source_detail` |
-| `ERROR_SOURCES` | `ErrorSource` as a set |
-| `classify` | Best-effort category for any exception, including Memory Service SDK, bifrost-sdk and `httpx` errors matched by class name (nearest class first). Every timeout is `TIMEOUT` |
-| `AgentPaused` | Raised by an agent to suspend the run and ask a person something. It is not an error |
-| `HarnessError` | Base of the failures a harness raises. Each subclass carries its own `code`, `category` and `retryable` |
-| `ConfigurationError` | A misconfiguration (`VALIDATION`) |
-| `AgentTimeoutError` | The execution ran out of time (`TIMEOUT`, retryable) |
-| `AgentCancelledError` | The execution was cancelled (`CANCELLED`) |
-| `PolicyDeniedError` | A policy refused the execution, a tool or a model (`POLICY`) |
-| `MemoryUnavailableError` | The Memory Service could not be reached (`MEMORY`, retryable) |
-| `ModelError` | A model call failed (`MODEL`) |
-| `ToolError` | A tool call failed (`TOOL`) |
-| `ToolNotFoundError` | A `ToolError` for a tool that does not exist (`VALIDATION`) |
-| `ResultValidationError` | An agent's result failed validation (`VALIDATION`) |
-
-`trellis.contracts.errors` also has `is_pause_signal(exc)`, which recognises `AgentPaused`
-and LangGraph's suspend signals by class name, and `RETRYABLE_CATEGORIES`.
-
-### `runs`
-
-| Name | What it is |
-| --- | --- |
-| `RunStatus` | Where a run is: `QUEUED`, `RUNNING`, `PAUSED` or a final status spelled like `AgentStatus`. `can_become` is the state machine and `final` says whether it has ended |
-| `RunStart` | What starting a run records. It is agent-runs' create body, and `from_request` builds it from an `AgentRequest`. Optional: `deadline`, `timeout_seconds` (working time), `agent_version`, and how a queued run waits its turn: `priority` (higher first) and `concurrency_key` (runs sharing it run a few at a time) |
-| `RunRecord` | A run as a store keeps it: the start plus status, output, error, the interrupt it waits on, the last resolution, an opaque `checkpoint` and the attempt |
-| `RunEvent` | One event of a run's stream, in the AG-UI vocabulary, ordered by `sequence` within an `attempt` |
-| `RunEventType` | The event vocabulary: AG-UI's names plus `CONTEXT_LOADED` and `INTERRUPT` |
-| `RunOutcome` | How a run finished, as `RUN_FINISHED` reports it. `from_status` maps a settled status to it |
-| `Interrupt` | The record of a paused run: the question, the expected answer shape (`expects`) and its widget hints (`ui_schema`), the UI hint (`ui`), options (plain strings or `Option`s) and whether several may be picked (`multiple`), the asker's own screen (`component`, `props`), payload, the tool call under approval, the assignee, the deadline and the escalation |
-| `Option` | One choice an interrupt offers: the `value` an answer carries, and the `label` and `description` a person sees |
-| `InterruptReason` | `QUESTION`, `APPROVAL`, `REVIEW`, `CHOICE`, `AUTH` |
-| `InterruptUI` | The control a surface renders, `Interrupt.ui`: `approve`, `form`, `table`, `diff`, `choice` |
-| `InterruptResolution` | How an interrupt was answered, with the reviewer's `comment` and how far an approval reaches (`remember`: `once`, or the rest of the `run`). `resolves` checks it answers that interrupt, and `to_feedback` gives the feedback for a tool-call decision |
-| `InterruptRemember` | `InterruptResolution.remember`: `once` or `run` |
-| `InterruptDecision` | `ANSWER`, `APPROVE`, `REJECT`, `EDIT`, `CANCEL` |
-| `ScheduleSpec` | A standing intent: which agent, what input, which cadence and timezone, on whose behalf; `timeout_seconds`, `agent_version`, `priority` and `concurrency_key` are copied into every fired run, and `metadata` into its metadata under the fire's own keys |
-| `Schedule` | A schedule as agent-runs keeps it: the spec plus its id, author and the history of its fires |
-
-### `feedback` and `evaluation`
-
-| Name | What it is |
-| --- | --- |
-| `Feedback` | One judgement about one target. `for_context` binds it to the identity of the request it was given in |
-| `FeedbackTargetKind` | `run`, `answer`, `memory`, `tool_call`, `brief`, `procedure` |
-| `FeedbackVerdict` | `confirm`, `reject`, `correct`, `approve`, `edit`. `correct` and `edit` need a `correction` |
-| `FeedbackSource` | `human`, `judge`, `interrupt` |
-| `JudgeVerdict` | A judge's score in [0, 1] with its method, model and cost. `as_feedback` turns it into a `Feedback` |
-| `JudgeMethod` | `grounded` (deterministic citation and claim checks) or `llm` |
-| `AgentEvalEvent` (from `events`) | What a judge scores a finished run from. It carries references, not payloads |
-
-### `descriptors` and `a2a`
-
-| Name | What it is |
-| --- | --- |
-| `AgentDescriptor` | An agent's identity and skills. `build` accepts plain skill ids |
-| `SkillDescriptor` | One skill: id, version, description, schemas and tags |
-| `AgentCard` | The A2A 1.0 Agent Card. `from_descriptor` maps a descriptor, `to_a2a` writes camelCase JSON without the platform's `metadata`, and `from_a2a` reads a foreign card as data |
-| `AgentSkill` | A skill on the card |
-| `AgentCapabilities` | Streaming, push notifications, state history and extensions |
-| `AgentProvider` | The organisation behind the agent, with an http(s) URL |
-| `AgentInterface` | Another URL and transport the same agent answers on |
-| `A2A_PROTOCOL_VERSION` | `"1.0"`, the protocol `a2a-sdk` 1.x speaks |
-
-### `ids`
-
-| Name | What it is |
-| --- | --- |
-| `new_id(prefix)` | A fresh opaque id, such as `run_<hex>` |
-| `stable_id(*parts, prefix, size)` | A deterministic id derived from its parts, so a retry produces the same id |
-| `safe_id(value, max_len)` | Any value coerced into the id alphabet shared with the Memory Service |
-| `now()` | The platform clock: timezone-aware UTC |
-
-## The ports
-
-Each port is a `runtime_checkable` `Protocol` in `trellis.contracts.ports`, so an
-implementation conforms by shape and imports no base class from here.
-
-| Port | Methods | Use it when you need to |
-| --- | --- | --- |
-| `ModelClient` | `invoke`, `structured`, `stream` | call a model provider without naming the provider |
-| `ToolClient` | `list_tools`, `call` | run tools from local callables, an MCP server or a gateway |
-| `ArtifactClient` | `put`, `get` | keep large payloads out of results and graph state |
-| `MemoryPort` | `enabled`, `retrieve`, `observe`, `record_input`, `record_output`, `describe` | read from and write to the Memory Service (or switch memory off) |
-| `TelemetryProvider` | `start_span`, `record_event`, `record_metric`, `flush` | emit spans, events and metrics |
-| `TelemetryRedactor` | `redact_attributes`, `redact_input`, `redact_output` | strip what may not leave the process before it reaches a backend, a UI or a webhook |
-| `EvaluationProvider` | `score`, `submit_dataset_item` | write scores and dataset items to the tracing backend (feedback goes to the Memory Service instead) |
-| `AgentPolicyProvider` | `authorize_execution`, `authorize_tool`, `authorize_model` | allow or refuse a run, a tool call or a model call |
-| `EventSink` | `publish` | deliver a run's `RunEvent` stream: SSE, a webhook outbox, a test collector |
-| `Judge` | `judge` | score a finished run off the critical path (`None` means it abstained) |
-| `AgentDirectory` | `get`, `find`, `publish` | find agents another agent may call, as `AgentCard`s |
-| `AgentInterceptor` | `name`, `order`, `before`, `after`, `on_error` | add an ordered stage to the execution pipeline |
-
-`ports.Runtime` (the object an interceptor is handed) is deliberately `Any`, because the
-concrete runtime belongs to whatever executes the agent.
-
-Runs have no port. Their client is `trellis.runs.RunsClient` (pip `trellis-runs`, shipped
-from agent-runs), whose verbs are agent-runs' operation ids: `start`, `claim`, `heartbeat`,
-`pause`, `resume`, `finish`, `get`, `list`. Its requests and replies are the types here
-(`RunStart`, `Interrupt`, `InterruptResolution`, `RunRecord`). Which sibling repo implements which
-port today is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#the-ports).
-
-## A run's lifecycle
-
-`RunStatus.can_become(target)` is the one transition check, and agent-runs refuses anything
-else. The labels below are `RunsClient` verbs. `RunRecord.from_start` creates a record `QUEUED` or `RUNNING`, and nothing else.
-
-```mermaid
-stateDiagram-v2
-  [*] --> QUEUED : start(queue=True)
-  [*] --> RUNNING : start
-  QUEUED --> RUNNING : claim, by a worker
-  RUNNING --> QUEUED : the worker's lease lapsed
-  RUNNING --> PAUSED : pause(interrupt)
-  PAUSED --> RUNNING : resume, in process
-  PAUSED --> QUEUED : resume, for a worker
-  QUEUED --> CANCELLED
-  QUEUED --> TIMEOUT
-  PAUSED --> CANCELLED
-  PAUSED --> TIMEOUT : past the deadline, nobody to escalate to
-  RUNNING --> SUCCESS : finish
-  RUNNING --> PARTIAL : finish
-  RUNNING --> ERROR : finish
-  RUNNING --> REJECTED : finish
-  RUNNING --> CANCELLED : finish
-  RUNNING --> TIMEOUT : finish
-```
-
-A paused run waits on exactly one `Interrupt`: a `QUESTION`, an `APPROVAL` (carries the tool
-call), a `REVIEW` (carries in `expects` what a correction looks like), a `CHOICE` (carries its
-`options`) or an `AUTH`. `assignee` is who answers (`user:u1`, `role:procurement`). Past the
-`deadline` the run goes to `escalate_to`, or times out when nobody is named.
-
-An option is a plain string or an `Option(value, label, description)`; the answer carries
-the value. With `multiple=True` the answer is a list of distinct values. `component` names
-the asker's own screen, which a surface that has it renders with `props` passed as they are;
-any other surface renders `ui`. `ui_schema` gives widget hints for the form `expects`
-describes (the react-jsonschema-form `uiSchema` convention). An answer is checked against
-`expects` and the options by agent-runs (`trellis.runs.answers`), also when a component
-collected it.
-
-The executor pauses with an opaque `checkpoint` (`RunsClient.pause(interrupt, checkpoint=)`):
-its resume journal and the framework's own resume state. The record returns it on every read
-and claim, so another worker resumes without repeating side effects. Finishing clears it.
-
-## The one rule
-
-`AgentExecutionContext.scope_fields()` applies the Memory Service's coherence rules at this
-boundary: `agent_run_id` needs `agent_id`, `session_id` needs `thread_id`, and `turn_id` needs
-`session_id`. A context that cannot be expressed coherently is corrected here rather than
-rejected at the far end of an HTTP call.
-
-## Wire conventions
-
-* **What the platform writes and streams refuses unknown fields**: `RunStart`, `RunEvent`,
-  `Interrupt`, `Option`, `InterruptResolution`, `Feedback`, `JudgeVerdict`, `ScheduleSpec` and
-  `AgentExecutionContext`. A
-  producer's typo is an error, not a silently dropped field. What is *read back* from a store
-  (`RunRecord`, `Schedule`) or from another agent (`AgentCard`) **ignores** unknown fields, so
-  a newer peer does not break an older reader.
-* **Every timestamp on a run, interrupt, event, feedback or schedule is timezone-aware.**
-* **Every field is documented.** Each model field has a one-line `Field(description=...)`
-  (units, formats, allowed values), so agent-runs' OpenAPI document describes every property.
-  `tests/test_field_docs.py` fails on a field without one.
-* **Closed vocabularies are typed**: statuses, kinds and decisions are `StrEnum`s, and
-  `ErrorSource`, `ToolSource`, `ObservationKind`, `InterruptUI` and `InterruptRemember` are `Literal`s, so a typo
-  is a validation error. ADR 0003 lists the `str` fields left open on purpose.
-* **Payloads that leave the process are unredacted** (`RunEvent.data`,
-  `Interrupt.awaiting()`). The surface that sends them passes them through a
-  `TelemetryRedactor`.
-
-`A2A_PROTOCOL_VERSION` is `"1.0"`, the protocol `a2a-sdk` 1.x speaks. `trellis-harness`'s A2A
-surface builds its served card with the SDK's own `PROTOCOL_VERSION_CURRENT`, so the two must
-agree; no test in a sibling repo asserts that yet, so a change to either needs the other
-checked by hand.
-
-## Versions, and what goes with what
-
-The packages move together. A combination is "supported" when a test run exercised it, not when
-it merely installs.
-
-| Package | Version | Notes |
-|---|---|---|
-| `trellis-contracts` | **0.6.1** | this package: contracts v3 (ADR 0002) without the `RunStore` port (ADR 0004), with run working-time limits and agent versions (ADR 0005), interrupts v2, decision comments and scope, queue priority and concurrency keys, and schedules' run limits (ADR 0006), and schedules that carry their runs' queue order and metadata (ADR 0007); `trellis.runs.RunsClient` is the runs client |
-| `trellis-harness` | **0.4.0** | pins `trellis-contracts>=0.4` |
-| `agent-runs` and `trellis-runs` (its SDK) | **0.4.0** | pin `trellis-contracts>=0.6.1,<0.7` |
-| `trellis-memory` (Memory Service SDK) | **0.4.0** | what the harness's memory client is written against |
-| `pydantic` | `>=2.13,<3` | the only runtime dependency |
-| Python | `>=3.12` | `StrEnum`, PEP 695 generics |
-
-The design decisions are in `docs/adr`: [0001](docs/adr/0001-contracts-v2.md) (runs, events,
-interrupts, feedback, judging and agent cards), [0002](docs/adr/0002-contracts-v3.md)
-(queued runs, richer interrupts, schedules, and the ports that were removed) and
-[0003](docs/adr/0003-documented-fields-and-closed-vocabularies.md) (field descriptions,
-`ErrorSource` and the other literals, and how `AgentError.of` reads SDK errors) and
-[0004](docs/adr/0004-no-run-store-port.md) (the `RunStore` port is gone; `trellis.runs` is
-the runs client), [0005](docs/adr/0005-run-working-time-and-agent-version.md) (a run's
-working-time limit and agent version),
-[0006](docs/adr/0006-interrupts-v2-and-queue-order.md) (labelled options, several picks, the
-asker's own screen, decision comments and scope, queue priority and concurrency keys,
-schedules' run limits) and [0007](docs/adr/0007-schedules-carry-queue-order-and-metadata.md)
-(a schedule's priority, concurrency key and metadata reach every run it fires).
+| Page | What it answers |
+|---|---|
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | How it fits among the five repos, the modules, the ports, the run lifecycle, which record becomes which across a run (sequence diagram), the records as class diagrams, the wire conventions |
+| [docs/api.md](docs/api.md) | Every exported name and every port, with what it is |
+| [examples/](examples/README.md) | Nine runnable scripts, simplest first |
+| [docs/configuration.md](docs/configuration.md) | There are no settings; the defaults the records apply |
+| [docs/troubleshooting.md](docs/troubleshooting.md) | Validation messages, their causes and fixes; FAQ |
+| [docs/versioning.md](docs/versioning.md) | Which versions of the five repos go together, and the version rules |
+| [CHANGELOG.md](CHANGELOG.md) | What each version changed |
+| [docs/adr/](docs/adr/README.md) | Why: one record per decision, 0001 to 0007 |
 
 ## Development
 
 ```bash
-uv sync --all-extras
-uv run pytest
-uv run ruff check .
-uv run ruff format --check .
+make sync          # uv sync --all-extras --locked
+make check         # lint, format-check, test, examples, links: what CI runs
 ```
 
-CI (`.github/workflows/ci.yml`) runs the same steps on every push to `main` and every pull
-request. One test fails the build if the
-package imports anything beyond `pydantic` and the standard library.
+The targets one by one are `lint` (`ruff check`), `format-check` (`ruff format --check`),
+`test` (`pytest`), `examples` and `links` (every relative Markdown link and anchor resolves).
+CI (`.github/workflows/ci.yml`) runs them on every push to `main` and every pull request. One
+test fails the build if the package imports anything beyond `pydantic` and the standard
+library. There is no type checker: the tests deliberately pass wrong types to prove the models
+refuse them.

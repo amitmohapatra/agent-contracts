@@ -4,13 +4,25 @@
 `typing.Protocol` ports. It has no runtime, transport or I/O, and its only dependency is
 `pydantic` (`tests/test_contracts.py` fails the build if a module imports anything else).
 This page shows how the pieces fit, who uses which, and the one state machine the package
-owns. The decisions behind it are ADRs [0001](adr/0001-contracts-v2.md),
-[0002](adr/0002-contracts-v3.md), [0003](adr/0003-documented-fields-and-closed-vocabularies.md),
-[0004](adr/0004-no-run-store-port.md), [0005](adr/0005-run-working-time-and-agent-version.md),
-[0006](adr/0006-interrupts-v2-and-queue-order.md) and
-[0007](adr/0007-schedules-carry-queue-order-and-metadata.md).
+owns. The decisions behind it are the [ADRs](adr/README.md), 0001 to 0007.
+
+Contents: [in the platform](#in-the-platform) ·
+[inside the package](#inside-the-package) · [the ports](#the-ports) ·
+[a run's lifecycle](#a-runs-lifecycle) ·
+[the records across a run](#the-records-across-a-run) · [the records](#the-records) ·
+[wire conventions](#wire-conventions)
 
 ## In the platform
+
+Trellis is five repos. This one is the vocabulary the other four agree on:
+
+| Repo | What it is | Relation to this package |
+|---|---|---|
+| **agent-contracts** (this repo) | the shared records and ports, types only | — |
+| [agent-harness](https://github.com/amitmohapatra/agent-harness) | runs your agent (any framework) with memory, runs, governance, tools and evals | imports it; builds and reads every record |
+| [agent-runs](https://github.com/amitmohapatra/agent-runs) | durable runs, the inbox, schedules, workers and webhooks, plus its SDK `trellis.runs` | imports it; its HTTP API is built from these models |
+| [agent-memory-service](https://github.com/amitmohapatra/agent-memory-service) | memory, context and feedback for agents | speaks some shapes without importing them |
+| [bifrost-sdk](https://github.com/amitmohapatra/bifrost-sdk) | the client for the Bifrost model and MCP gateway | independent; `classify()` reads its errors |
 
 Two sibling repos import it (agent-harness, and agent-runs with its SDK `trellis.runs`); the
 Memory Service speaks some of its shapes without importing it; `bifrost-sdk` is independent
@@ -146,6 +158,12 @@ service's operation ids (`start`, `claim`, `heartbeat`, `pause`, `resume`, `fini
 in `runs.py`, and a final status has no entry, so it moves nowhere. `RunRecord.from_start`
 only creates `QUEUED` or `RUNNING` records. The labels are `RunsClient` verbs.
 
+This is the contract: which moves are allowed. agent-runs owns *when* each move happens (the
+ticker, leases, retries and escalation), and
+[its lifecycle diagram](https://github.com/amitmohapatra/agent-runs/blob/main/docs/ARCHITECTURE.md#the-run-lifecycle)
+labels every edge with its trigger. Where the two seem to differ, that diagram is the
+authority on triggers and this table on what is allowed.
+
 ```mermaid
 stateDiagram-v2
   [*] --> QUEUED : start(queue=True) / from_start(status=QUEUED)
@@ -153,7 +171,7 @@ stateDiagram-v2
   QUEUED --> RUNNING : claim, by a worker
   QUEUED --> CANCELLED
   QUEUED --> TIMEOUT
-  RUNNING --> QUEUED : the worker's lease lapsed
+  RUNNING --> QUEUED : lease lapsed, released by its worker, or a retryable ERROR requeued
   RUNNING --> PAUSED : pause(interrupt, checkpoint=)
   RUNNING --> SUCCESS : finish
   RUNNING --> PARTIAL : finish
@@ -165,6 +183,7 @@ stateDiagram-v2
   PAUSED --> QUEUED : resume, for a worker
   PAUSED --> CANCELLED
   PAUSED --> TIMEOUT : past the deadline, nobody to escalate to
+  note right of PAUSED : past the interrupt's deadline with escalate_to set, the run stays PAUSED and its assignee changes, once
   SUCCESS --> [*]
   PARTIAL --> [*]
   ERROR --> [*]
@@ -185,40 +204,92 @@ stateDiagram-v2
 becomes `interrupt`, the endings become their lower-case names, and `QUEUED` and `RUNNING`
 raise `ValueError` because they have no outcome yet.
 
-### Pausing, answering and resuming
+## The records across a run
 
-A run that pauses for an approval, driven the way the contract expects. agent-harness
-pauses through its own `Runtime.ask` rather than raising `AgentPaused`, but it resumes in this
-order: agent-runs accepts the resolution before the feedback is sent, so a decision that never
-took effect is never learned from.
+Which record is made where, from what, as one run goes from start to finish through a tool
+approval. Every arrow carries one of this package's types. The harness plays "executor" in
+Way 1; in Way 2 your own code does, with `trellis.runs` and `trellis.memory`.
+[examples/04_pause_answer_resume.py](../examples/04_pause_answer_resume.py) runs the same steps
+without any service.
+
+```mermaid
+flowchart LR
+  CTX[AgentExecutionContext] --> REQ[AgentRequest]
+  REQ -->|RunStart.from_request| RS[RunStart]
+  RS -->|RunRecord.from_start| RR[RunRecord]
+  SPEC[ToolSpec] --> TC[ToolCall]
+  TC -->|"APPROVAL carries it"| INT[Interrupt]
+  RR -->|"PAUSED: awaiting"| INT
+  INT -->|answered by| RES[InterruptResolution]
+  RES -->|"last_resolution"| RR
+  RES -->|"to_feedback(interrupt, ctx)"| FB[Feedback]
+  TC -->|"after the call"| TO[ToolOutcome]
+  RR -.->|"each step streamed as"| EV[RunEvent]
+  INT -.->|"RUN_FINISHED(interrupt).data"| EV
+```
 
 ```mermaid
 sequenceDiagram
   autonumber
-  participant A as Agent
-  participant H as Harness
-  participant S as RunsClient (agent-runs)
-  participant E as EventSink
-  participant P as Person / UI
+  participant X as Executor (harness, or your code)
+  participant R as agent-runs (trellis.runs.RunsClient)
+  participant UI as Surface (UI, inbox)
+  participant P as Person
   participant M as Memory Service
 
-  H->>S: start(RunStart.from_request(request))
-  S-->>H: RunRecord (RUNNING)
-  H->>E: publish(RunEvent.started(ctx, 0))
-  A-->>H: raise AgentPaused("Approve the refund?")
-  H->>H: Interrupt.from_paused(paused, context=ctx, reason=APPROVAL, tool_call=...)
-  H->>S: pause(interrupt, checkpoint={...})
-  S-->>H: RunRecord (PAUSED, awaiting=interrupt)
-  H->>E: publish(RunEvent.finished(ctx, "interrupt", n, interrupt=interrupt))
-  P->>H: InterruptResolution(decision=APPROVE)
-  H->>S: resume(resolution)
-  S-->>H: RunRecord (RUNNING, attempt+1, checkpoint returned)
-  H->>M: resolution.to_feedback(interrupt, ctx) as Feedback
-  A-->>H: AgentResponse.ok(data)
-  H->>S: finish(run_id, SUCCESS, output=data)
-  S-->>H: RunRecord (SUCCESS, checkpoint cleared)
-  H->>E: publish(RunEvent.finished(ctx, "success", n+1))
+  X->>X: ctx = AgentExecutionContext.create(...), request = AgentRequest.create(ctx, input)
+  X->>R: start(RunStart.from_request(request))
+  R-->>X: RunRecord (RUNNING, attempt 1)
+  X-->>UI: RunEvent.started(ctx, 0)
+  X->>X: the agent proposes ToolCall(tool="erp.order", args=...)
+  X-->>UI: RunEvent.tool(ctx, TOOL_CALL_START, tool_call_id, 1)
+  Note over X: the ToolSpec's side_effects need an approval
+  X->>X: Interrupt.from_paused(AgentPaused(question), context=ctx, reason=APPROVAL, tool_call=call)
+  X->>R: pause(interrupt, checkpoint={...})
+  R-->>X: RunRecord (PAUSED, awaiting=interrupt)
+  X-->>UI: RunEvent.finished(ctx, INTERRUPT, 2, interrupt=interrupt)
+  UI->>P: the question, options and tool call
+  P->>R: resume(InterruptResolution(decision=APPROVE, comment=...))
+  Note over R: resolves(interrupt) and the answer are checked first
+  R-->>X: RunRecord (RUNNING or QUEUED, attempt 2, checkpoint returned, last_resolution)
+  X->>M: feedback(resolution.to_feedback(interrupt, ctx))
+  X->>X: call the tool once: ToolOutcome(tool, status=OK, output=...)
+  X-->>UI: RunEvent.tool(ctx, TOOL_CALL_RESULT, tool_call_id, n)
+  X->>R: finish(run_id, SUCCESS, output=...)
+  R-->>X: RunRecord (SUCCESS, checkpoint cleared)
+  X-->>UI: RunEvent.finished(ctx, SUCCESS, n+1)
 ```
+
+The order matters at steps 12 to 14: agent-runs accepts the resolution before the feedback is
+sent, so a decision that never took effect is never learned from. The harness pauses through
+its own `Runtime.ask` rather than raising `AgentPaused`, but it resumes in this order. Events
+are numbered per attempt (`RunEvent.sequence` restarts at 0 on attempt 2), and a sink dedupes
+on run, attempt and sequence.
+
+### What a pause carries
+
+A paused run waits on exactly one `Interrupt`: a `QUESTION`, an `APPROVAL` (carries the tool
+call), a `REVIEW` (carries in `expects` what a correction looks like), a `CHOICE` (carries its
+`options`) or an `AUTH`. `assignee` is who answers (`user:u1`, `role:procurement`). Past the
+`deadline` the run goes to `escalate_to`, or times out when nobody is named.
+
+An option is a plain string or an `Option(value, label, description)`; the answer carries the
+value. With `multiple=True` the answer is a list of distinct values. `component` names the
+asker's own screen, which a surface that has it renders with `props` passed as they are; any
+other surface renders `ui`. `ui_schema` gives widget hints for the form `expects` describes
+(the react-jsonschema-form `uiSchema` convention). agent-runs checks an answer against
+`expects` and the options (`trellis.runs.answers`), also when a component collected it.
+
+The executor pauses with an opaque `checkpoint` (`RunsClient.pause(interrupt, checkpoint=)`):
+its resume journal and the framework's own resume state. The record returns it on every read
+and claim, so another worker resumes without repeating side effects. Finishing clears it.
+
+### The one scope rule
+
+`AgentExecutionContext.scope_fields()` applies the Memory Service's coherence rules at this
+boundary: `agent_run_id` needs `agent_id`, `session_id` needs `thread_id`, and `turn_id` needs
+`session_id`. A context that cannot be expressed coherently is corrected here rather than
+rejected at the far end of an HTTP call.
 
 ## The records
 
@@ -541,8 +612,8 @@ exception class (that is `code`). Every value but `memory` is one a sibling repo
 ## Wire conventions
 
 * **Written records refuse unknown fields**, so a producer's typo is an error: `RunStart`,
-  `RunEvent`, `Interrupt`, `InterruptResolution`, `Feedback`, `JudgeVerdict`, `ScheduleSpec`
-  and `AgentExecutionContext`.
+  `RunEvent`, `Interrupt`, `Option`, `InterruptResolution`, `Feedback`, `JudgeVerdict`,
+  `ScheduleSpec` and `AgentExecutionContext`.
 * **Records read back ignore unknown fields**, so a newer peer does not break an older reader:
   `RunRecord` and `Schedule` (from a store) and `AgentCard` with its parts (from another
   agent).
@@ -552,7 +623,8 @@ exception class (that is `code`). Every value but `memory` is one a sibling repo
   with its unit, format and allowed values, so the JSON Schema (and agent-runs' OpenAPI
   document) documents every property. `tests/test_field_docs.py` keeps it that way.
 * **Closed vocabularies are typed.** Statuses, reasons, decisions, kinds and verdicts are
-  `StrEnum`s. `ErrorSource`, `ToolSource`, `ObservationKind` and `InterruptUI` are `Literal`s,
+  `StrEnum`s. `ErrorSource`, `ToolSource`, `ObservationKind`, `InterruptUI` and
+  `InterruptRemember` are `Literal`s,
   so a caller's string literal still type-checks. The fields left as `str` on purpose
   (`ToolSpec.side_effects`, `EvidenceRef.source_type`, the A2A transports, ...) are listed in
   ADR 0003 with the reason for each.
@@ -560,3 +632,25 @@ exception class (that is `code`). Every value but `memory` is one a sibling repo
   `Interrupt.awaiting()`). The surface that sends them out passes them through a
   `TelemetryRedactor`.
 * **Ids carry a prefix**: `run_`, `req_`, `int_`, `evt_`, `fb_`, `sch_`.
+
+### One definition on every wire
+
+The same record means the same thing to every block because it is defined once, here:
+
+* **One definition.** agent-runs' service and its SDK (`trellis.runs`) and the harness import
+  these models; none redefines them. The Memory Service does not import the package but speaks
+  its shapes: `POST /v1/feedback` takes a `Feedback` unchanged, `scope_fields()` returns its
+  `Scope` keywords, and `OBSERVATION_KINDS` is its `ObservationKind`.
+* **The API is built from them.** agent-runs' OpenAPI document embeds these models
+  (`RunCreate` subclasses `RunStart`; `RunRecord`, `Interrupt`, `InterruptResolution`,
+  `Schedule`, `ScheduleSpec`, `AgentError` and `ArtifactRef` are used as they are). Its CI fails
+  when the committed document differs from the code's, and `trellis.runs`' tests check every
+  model it sends or parses against that document.
+* **Versioned pins.** A release that changes a record is a new version the siblings' pins must
+  admit before anyone sends it. The current pins are in [versioning.md](versioning.md), and
+  each change has its ADR.
+
+`A2A_PROTOCOL_VERSION` is `"1.0"`, the protocol `a2a-sdk` 1.x speaks. `trellis-harness`'s A2A
+surface builds its served card with the SDK's own `PROTOCOL_VERSION_CURRENT`, so the two must
+agree. No test in a sibling repo asserts that yet, so a change to either needs the other
+checked by hand.
