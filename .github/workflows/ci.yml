@@ -21,3 +21,7 @@ jobs:
       # No pyright step: the repo configures no type checker, and the tests deliberately pass
       # wrong types to prove the models refuse them.
       - run: uv run pytest -q
+      # every numbered example runs, pure and offline
+      - run: make examples
+      # every relative Markdown link and anchor resolves
+      - run: make links
