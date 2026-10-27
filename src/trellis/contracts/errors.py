@@ -36,7 +36,7 @@ RETRYABLE_CATEGORIES = frozenset(
 
 #: Who reported a failure: the component that failed, never the exception class (that is
 #: ``code``). The harness's framework adapters (``function``, ``langgraph``,
-#: ``openai_agents``, ``claude_agent_sdk``, ``react``: the source of every run failure it
+#: ``openai_agents``, ``claude_agent_sdk``, ``acp``, ``react``: the source of every run failure it
 #: records), its tool layer (``tools``), an MCP tool behind the gateway (``mcp``), a remote
 #: agent called over A2A (``a2a``), the Memory Service (``memory``) and agent-runs itself
 #: (``agent-runs``: a lapsed lease, an unanswered interrupt, a schedule that could not fire).
@@ -50,6 +50,7 @@ ErrorSource = Literal[
     "langgraph",
     "openai_agents",
     "claude_agent_sdk",
+    "acp",
     "react",
 ]
 #: :data:`ErrorSource` as a set, for checking a value before it reaches a record.

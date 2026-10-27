@@ -1,7 +1,7 @@
 # ADR 0003: Every field documented, closed vocabularies typed, SDK errors read as they say
 
 **Status:** accepted · **Date:** 2026-10-04 · **Amends:** [ADR 0001](0001-contracts-v2.md),
-[ADR 0002](0002-contracts-v3.md)
+[ADR 0002](0002-contracts-v3.md) · **Amended by:** [ADR 0008](0008-acp-error-source.md)
 
 ## Context
 agent-runs serves these models over HTTP, so its OpenAPI schema is this package's field list.
