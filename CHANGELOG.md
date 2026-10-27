@@ -18,6 +18,12 @@ Documentation only, no change to the package:
 * ADR headers: 0002 lists 0005 and 0006 as amendments, 0005 lists 0006, 0006 lists 0007; an
   ADR index.
 
+## 0.6.2 (2026-10-27)
+
+* `ErrorSource` gains `acp`: the harness's adapter for agents spoken to over the Agent Client
+  Protocol (Kimi Code), the source of its failed runs
+  ([ADR 0008](docs/adr/0008-acp-error-source.md)). A reader needs 0.6.2 to read such a record.
+
 ## 0.6.1 (2026-10-06)
 
 * `ScheduleSpec` gains `priority` and `concurrency_key`. Both, with `timeout_seconds` and

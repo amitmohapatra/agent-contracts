@@ -401,7 +401,7 @@ def test_every_source_in_use_is_accepted(source: str) -> None:
 def test_the_sources_are_the_components_that_report_failures() -> None:
     """agent-runs, the harness's tool bridge, MCP, A2A, memory, and each framework adapter
     (whose name the harness records as the source of a failed run)."""
-    adapters = {"function", "langgraph", "openai_agents", "claude_agent_sdk", "react"}
+    adapters = {"function", "langgraph", "openai_agents", "claude_agent_sdk", "acp", "react"}
     assert frozenset({"agent-runs", "tools", "mcp", "a2a", "memory"} | adapters) == ERROR_SOURCES
 
 
@@ -436,3 +436,11 @@ def test_the_schema_lists_the_sources() -> None:
     schema = AgentError.model_json_schema()["properties"]["source"]
     listed = {value for option in schema["anyOf"] for value in option.get("enum", [])}
     assert listed == ERROR_SOURCES
+
+
+def test_an_acp_agents_failure_is_recorded_as_the_acp_adapters() -> None:
+    """The harness's adapter for agents spoken to over the Agent Client Protocol (Kimi Code)
+    records its runs' failures under its name, as every adapter does."""
+    error = AgentError.of(RuntimeError("the agent's process ended"), source="acp")
+    assert error.source == "acp" and error.model_dump(mode="json")["source"] == "acp"
+    assert AgentError.model_validate_json(error.model_dump_json()).source == "acp"

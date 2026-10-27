@@ -602,7 +602,7 @@ exception class (that is `code`). Every value but `memory` is one a sibling repo
 
 | Source | Set by |
 | --- | --- |
-| `function`, `langgraph`, `openai_agents`, `claude_agent_sdk`, `react` | the harness, for every failed run (the adapter's name) |
+| `function`, `langgraph`, `openai_agents`, `claude_agent_sdk`, `acp`, `react` | the harness, for every failed run (the adapter's name; `acp`: an agent spoken to over the Agent Client Protocol, Kimi Code) |
 | `tools` | the harness's tool layer (a tool missing from the run, or called outside one) |
 | `mcp` | the harness's Bifrost client, as `mcp.<tool>`: stored as `mcp`, with the tool in `details.source_detail` |
 | `a2a` | the harness's A2A client (a remote agent failed or ended badly) |

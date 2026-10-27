@@ -65,7 +65,7 @@ Every name below is in `trellis.contracts.__all__` and importable from `trellis.
 | --- | --- |
 | `AgentError` | A normalised, serialisable failure with `category`, `retryable` and `source`. `AgentError.of(exc)` builds one from any exception, keeping the exception's own `retryable` when it has one |
 | `ErrorCategory` | The closed set of failure categories |
-| `ErrorSource` | The components that report failures, `AgentError.source`: `agent-runs`, `tools`, `mcp`, `a2a`, `memory` and the harness's adapters (`function`, `langgraph`, `openai_agents`, `claude_agent_sdk`, `react`). A qualified `mcp.<tool>` is stored as `mcp` with the tool in `details.source_detail` |
+| `ErrorSource` | The components that report failures, `AgentError.source`: `agent-runs`, `tools`, `mcp`, `a2a`, `memory` and the harness's adapters (`function`, `langgraph`, `openai_agents`, `claude_agent_sdk`, `acp`, `react`). A qualified `mcp.<tool>` is stored as `mcp` with the tool in `details.source_detail` |
 | `ERROR_SOURCES` | `ErrorSource` as a set |
 | `classify` | Best-effort category for any exception, including Memory Service SDK, bifrost-sdk and `httpx` errors matched by class name (nearest class first). Every timeout is `TIMEOUT` |
 | `AgentPaused` | Raised by an agent to suspend the run and ask a person something. It is not an error |
