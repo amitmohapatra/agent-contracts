@@ -4,7 +4,7 @@
 `typing.Protocol` ports. It has no runtime, transport or I/O, and its only dependency is
 `pydantic` (`tests/test_contracts.py` fails the build if a module imports anything else).
 This page shows how the pieces fit, who uses which, and the one state machine the package
-owns. The decisions behind it are the [ADRs](adr/README.md), 0001 to 0007.
+owns. The decisions behind it are the [ADRs](adr/README.md), 0001 to 0009.
 
 Contents: [in the platform](#in-the-platform) ·
 [inside the package](#inside-the-package) · [the ports](#the-ports) ·
@@ -67,7 +67,7 @@ flowchart BT
   descriptors["descriptors<br/>AgentDescriptor, SkillDescriptor"]
   context["context<br/>AgentExecutionContext"]
   tool["tool<br/>ToolSpec, ToolCall, ToolOutcome"]
-  model["model<br/>ModelRequest, ModelResponse, ModelUsage"]
+  model["model<br/>ModelRequest, ModelResponse, ModelUsage,<br/>Endpoint, ModelProfile"]
   messages["messages<br/>AgentRequest, AgentResponse, AgentStatus"]
   feedback["feedback<br/>Feedback"]
   events["events<br/>AgentEvalEvent"]

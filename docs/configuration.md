@@ -20,6 +20,9 @@ callers most often rely on, and whether you get them without asking.
 | `ScheduleSpec.timezone` | `"UTC"` | yes | `ScheduleSpec(..., timezone="Europe/Berlin")` |
 | `ScheduleSpec.enabled` | `True` | yes | `ScheduleSpec(..., enabled=False)` |
 | `JudgeVerdict.as_feedback(threshold=)` | `0.5` | yes | `verdict.as_feedback(event, threshold=0.8)` |
+| `Endpoint.gateway` | `"openai-compatible"` | yes | `Endpoint(base_url=..., gateway="bifrost")` |
+| `Endpoint.auth` | `"bearer"` (with `api_key`) | yes | `Endpoint(base_url=..., auth="google")` |
+| `Endpoint.profile` | a plain chat model: no reasoning, takes a temperature, calls tools | yes | `Endpoint(..., profile=ModelProfile(reasoning_output=True, temperature=False))` |
 
 Constants (in `trellis.contracts.errors` unless noted), fixed in code:
 

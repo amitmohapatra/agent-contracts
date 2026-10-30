@@ -17,6 +17,7 @@ part is noted in the last column, and the earlier record lists the later one as 
 | [0006](0006-interrupts-v2-and-queue-order.md) | Interrupts v2 (labelled options, several picks, own screens), decision scope, queue order | 0.6.0 | accepted | 0002, 0005 | 0007 | — |
 | [0007](0007-schedules-carry-queue-order-and-metadata.md) | A schedule carries its runs' queue order and metadata | 0.6.1 | accepted | 0006 | — | — |
 | [0008](0008-acp-error-source.md) | `acp`, the harness's adapter for ACP agents (Kimi Code), is an error source | 0.6.2 | accepted | 0003 | — | — |
+| [0009](0009-endpoint-and-model-profile.md) | An `Endpoint` and a `ModelProfile` say where a model is and what it accepts | 0.6.3 | accepted | — | — | — |
 
 What each version changed, in one place: [CHANGELOG.md](../../CHANGELOG.md).
 
