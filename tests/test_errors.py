@@ -382,6 +382,8 @@ def test_a_subclass_an_sdk_adds_later_is_classified_like_its_parent() -> None:
         ("UnprocessableError", ErrorCategory.VALIDATION),
         ("EmptyResponse", ErrorCategory.MODEL),
         ("InvalidJSON", ErrorCategory.MODEL),
+        # a Bifrost-only method on a client built for another gateway: a misconfiguration
+        ("BifrostOnlyError", ErrorCategory.VALIDATION),
         ("BifrostError", ErrorCategory.UNKNOWN),
     ],
 )

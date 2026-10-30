@@ -205,7 +205,7 @@ means no sibling package takes that type today; it is there for code of your own
 | `messages` | `AgentRequest`, `AgentResponse`, `AgentStatus` | never: `agent.run` takes your input and returns the harness's `Result` | `AgentRequest` feeds `RunStart.from_request`; `AgentResponse` is a result shape for your own agents (no block takes it) |
 | `artifacts` | `ArtifactRef`, `EvidenceRef`, `Claim`, `MemoryObservation`, ... | never: an `ask` table or diff is uploaded for you and becomes the interrupt's `payload_ref` | `RunsClient.artifacts.upload(...)` returns the `ArtifactRef` you put on `Interrupt.payload_ref`; the rest are fields of `AgentResponse` (no block reads them) |
 | `tool` | `ToolSpec`, `ToolCall`, `ToolOutcome`, `ToolStatus`, `ToolSource` | only `side_effects`: `tool(fn, side_effects="irreversible")` becomes `ToolSpec.side_effects`, which governance reads; an approval's `Result.interrupt.tool_call` is a `ToolCall` | `Governance.check(spec.name, args, side_effects=spec.side_effects)` and `Governance.publish(specs)` read `ToolSpec`s; `remote(url, ...).spec` is one; an `APPROVAL` `Interrupt` carries the `ToolCall` |
-| `model` | `ModelRequest`, `ModelResponse`, `ModelUsage` | never: models go through Bifrost | no block: `bifrost_sdk` is the model client; these are the `ModelClient` port's shapes, for an adapter of your own |
+| `model` | `ModelRequest`, `ModelResponse`, `ModelUsage`, `Endpoint`, `ModelProfile` | never: the harness hands the Memory Service its `Endpoint` | no block: `bifrost_sdk` is the model client; `Endpoint` and `ModelProfile` name a model, its route and what it accepts; the rest are the `ModelClient` port's shapes, for an adapter of your own |
 | `errors` | `AgentError`, `AgentPaused`, the `HarnessError` family, `classify` | you read `AgentError` on `Result.error` and `RunRecord.error`; you raise nothing | `RunsClient.finish(run_id, RunStatus.ERROR, error=AgentError.of(exc, source=...))`; `classify(exc)` sorts memory, Bifrost and `httpx` failures |
 | `runs` | `RunStart`, `RunRecord`, `RunStatus`, `RunEvent`, `Interrupt`, `InterruptResolution`, `ScheduleSpec`, `Schedule`, ... | you read them: `agent.stream()` yields `RunEvent`s, `Result.interrupt` is an `Interrupt`, `handle.status()` a `RunRecord`, `agent.schedule(...)` a `Schedule`; you answer with `agent.resume(interrupt_id, decision)` (an `InterruptDecision` or its name), which becomes the `InterruptResolution` | `RunsClient.start(RunStart)` → `RunRecord`; `pause(Interrupt, checkpoint=)`, `resume(InterruptResolution)` and `finish(...)` → `RunRecord`; `list(status=RunStatus.PAUSED, assignee=...)` is the inbox; `schedules.create(ScheduleSpec)` → `Schedule`; a `Worker`'s `Job.record` is a `RunRecord`. `RunEvent` is yours to stream (no block takes it) |
 | `feedback`, `evaluation` | `Feedback`, `FeedbackVerdict`, `JudgeVerdict`, `AgentEvalEvent` | never: each approve, reject or edit goes to memory as `InterruptResolution.to_feedback(...)`; `h.feedback(run_id, verdict)` takes a `FeedbackVerdict` or its name | the memory SDK's `feedback(record)` sends a `Feedback` as it is (`to_feedback(...)`, `Feedback.for_context(...)`, `JudgeVerdict.as_feedback(...)`); `Governance.decided(...)` builds the one for a tool call. `trellis.harness.evals` scores with its own `EvalScore`, not `JudgeVerdict` |
@@ -241,6 +241,7 @@ does these for you; the rows are what you write when you plug the blocks in your
 | publish an agent to other agents from A2A code of your own | `AgentDescriptor.build(...)`, then `AgentCard.from_descriptor(descriptor, url=...)`, then `card.to_a2a()` (a wrapped agent's `serve_a2a` publishes its card itself) |
 | read another agent's card | `AgentCard.from_a2a(json)`, which drops unknown keys and refuses non-http(s) URLs |
 | describe, call and report tools | `ToolSpec` (`descriptor()` is the Memory Service shape; `side_effects` is what governance decides from), `ToolCall`, `ToolOutcome` with its `ToolStatus` |
+| name a model, its route and login, and what it accepts | `Endpoint(base_url=..., gateway=..., auth=..., model=..., profile=ModelProfile(...))`; `ModelProfile.model_validate(chat_model.profile)` reads LangChain's |
 | call a model provider-neutrally | `bifrost_sdk` is the platform's model client; `ModelRequest`, a `ModelClient`, `ModelResponse.coerce(raw)` and `ModelUsage.extract(raw)` (token counts) are for an adapter of your own |
 | scope a Memory Service call | `MemoryClient().bind(**ctx.scope_fields())` |
 | make a write idempotent across retries | `ctx.idempotency_key(*parts)`, or `stable_id(*parts)` |
@@ -257,7 +258,7 @@ does these for you; the rows are what you write when you plug the blocks in your
 | [docs/troubleshooting.md](docs/troubleshooting.md) | Validation messages, their causes and fixes; FAQ |
 | [docs/versioning.md](docs/versioning.md) | Which versions of the five repos go together, and the version rules |
 | [CHANGELOG.md](CHANGELOG.md) | What each version changed |
-| [docs/adr/](docs/adr/README.md) | Why: one record per decision, 0001 to 0007 |
+| [docs/adr/](docs/adr/README.md) | Why: one record per decision, 0001 to 0009 |
 
 ## Development
 

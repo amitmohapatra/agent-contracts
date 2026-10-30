@@ -18,6 +18,16 @@ Documentation only, no change to the package:
 * ADR headers: 0002 lists 0005 and 0006 as amendments, 0005 lists 0006, 0006 lists 0007; an
   ADR index.
 
+## 0.6.3 (2026-10-30)
+
+* `Endpoint`: where a model is and how to reach it (`base_url`, `gateway`, `auth`, `model`,
+  `api_key` as a `SecretStr`, `profile`), what the harness hands the Memory Service.
+* `ModelProfile`: what a model accepts (`reasoning_output`, `temperature`,
+  `max_output_tokens`, `tool_calling`), named as LangChain's model-profile keys, so a chat
+  model's `profile` validates as one.
+* `classify` maps bifrost-sdk's `BifrostOnlyError` to `VALIDATION`
+  ([ADR 0009](docs/adr/0009-endpoint-and-model-profile.md)).
+
 ## 0.6.2 (2026-10-27)
 
 * `ErrorSource` gains `acp`: the harness's adapter for agents spoken to over the Agent Client

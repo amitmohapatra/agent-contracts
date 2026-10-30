@@ -922,7 +922,7 @@ def test_everything_new_is_exported_and_the_version_is_the_installed_one() -> No
         "now",
     ):
         assert name in contracts.__all__ and hasattr(contracts, name), name
-    assert contracts.__version__ == md.version("trellis-contracts") == "0.6.2"
+    assert contracts.__version__ == md.version("trellis-contracts") == "0.6.3"
 
 
 @pytest.mark.parametrize(

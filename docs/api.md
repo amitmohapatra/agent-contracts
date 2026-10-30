@@ -58,6 +58,8 @@ Every name below is in `trellis.contracts.__all__` and importable from `trellis.
 | `ModelRequest` | One model invocation: model, provider, prompt or messages, params and tools |
 | `ModelResponse` | The normalised result. `raw` keeps the provider object, and `coerce` wraps any provider response |
 | `ModelUsage` | Token and cost accounting. `extract` reads the common provider spellings and never invents counts |
+| `Endpoint` | Where a model is and how to reach it: `base_url`, `gateway` and `auth` (names each consumer looks up in its registry), `model`, `api_key` (a `SecretStr`: a sender writes `get_secret_value()` onto the wire) and `profile` |
+| `ModelProfile` | What a model accepts, as data: `reasoning_output`, `temperature`, `max_output_tokens`, `tool_calling`. LangChain's model-profile keys, so `ModelProfile.model_validate(chat_model.profile)` works |
 
 ### `errors`
 

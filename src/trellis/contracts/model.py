@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 
 from trellis.contracts.artifacts import ArtifactRef
 
@@ -66,6 +66,73 @@ class ModelUsage(BaseModel):
                 continue
             known[name] = float(value) if name == "cost_usd" else int(value)
         return cls(**known) if known else None
+
+
+class ModelProfile(BaseModel):
+    """What a model accepts, as data: a client shapes its requests from this, never from the
+    model's name.
+
+    The field names are LangChain's model-profile keys, so a chat model's ``profile`` (a dict
+    with many more keys) validates as one: ``ModelProfile.model_validate(chat_model.profile)``.
+    The keys this type does not carry are ignored. The defaults are a plain chat model.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="ignore")
+
+    reasoning_output: bool = Field(
+        default=False,
+        description="Whether the model reasons before it answers (max_completion_tokens).",
+    )
+    temperature: bool = Field(default=True, description="Whether the model accepts a temperature.")
+    max_output_tokens: int | None = Field(
+        default=None, ge=1, description="The most tokens one answer may hold; None when unknown."
+    )
+    tool_calling: bool = Field(default=True, description="Whether the model can call tools.")
+
+
+class Endpoint(BaseModel):
+    """Where a model is and how to reach it: what the harness hands the Memory Service, so
+    memory calls the model the harness was configured with.
+
+    ``gateway`` and ``auth`` are names each consumer looks up in its own registry (routes:
+    ``openai-compatible``, ``bifrost``; auth: ``bearer``, ``google``, ``aws``). They are open
+    strings, so a registry grows without a contracts release. ``api_key`` is a ``SecretStr``:
+    ``repr`` and ``model_dump`` mask it, so a sender writes ``api_key.get_secret_value()`` onto
+    the wire itself, and a receiver's ``Endpoint.model_validate`` takes the plain string.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    base_url: str = Field(
+        description="The OpenAI-compatible API root (http or https).",
+        examples=["https://api.openai.com/v1", "http://bifrost:8080/v1"],
+    )
+    gateway: str = Field(
+        default="openai-compatible",
+        min_length=1,
+        description="The route's name: openai-compatible, bifrost, or one a registry adds.",
+    )
+    auth: str = Field(
+        default="bearer",
+        min_length=1,
+        description="The auth strategy's name: bearer, google, aws, or one a registry adds.",
+    )
+    model: str | None = Field(
+        default=None, description="The model as the endpoint names it; None lets the user pick."
+    )
+    api_key: SecretStr | None = Field(
+        default=None, description="The bearer key; None for an auth that carries no secret."
+    )
+    profile: ModelProfile = Field(
+        default_factory=ModelProfile, description="What the model accepts; a plain chat model."
+    )
+
+    @field_validator("base_url")
+    @classmethod
+    def _http(cls, value: str) -> str:
+        if not value.startswith(("http://", "https://")):
+            raise ValueError("base_url must be an http(s) URL")
+        return value
 
 
 class ModelRequest(BaseModel):

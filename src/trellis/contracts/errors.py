@@ -266,6 +266,7 @@ _SDK_CATEGORIES: Final[dict[str, ErrorCategory]] = {
     "BadRequestError": ErrorCategory.VALIDATION,
     "UnprocessableError": ErrorCategory.VALIDATION,
     "ConflictError": ErrorCategory.VALIDATION,
+    "BifrostOnlyError": ErrorCategory.VALIDATION,
     "NotFoundError": ErrorCategory.DEPENDENCY,
     "RateLimitedError": ErrorCategory.RATE_LIMIT,
     "RateLimited": ErrorCategory.RATE_LIMIT,

@@ -11,6 +11,8 @@ from pydantic import ValidationError
 
 from trellis.contracts import (
     ArtifactRef,
+    Endpoint,
+    ModelProfile,
     ModelRequest,
     ModelResponse,
     ModelUsage,
@@ -183,6 +185,97 @@ def test_a_model_response_keeps_any_raw_object_and_round_trips_its_own_fields() 
     assert response.raw is raw
     dumped = response.model_dump(exclude={"raw"})
     assert ModelResponse.model_validate(dumped) == response.model_copy(update={"raw": None})
+
+
+# --------------------------------------------------------------------------- endpoints
+
+#: A LangChain chat model's ``profile`` as LangChain gives it: many keys, four of them ours.
+LANGCHAIN_PROFILE = {
+    "name": "a reasoning model",
+    "max_input_tokens": 400_000,
+    "max_output_tokens": 128_000,
+    "reasoning_output": True,
+    "reasoning_effort_levels": ["low", "medium", "high"],
+    "tool_calling": True,
+    "structured_output": True,
+    "temperature": False,
+    "image_inputs": True,
+}
+
+
+def test_a_profile_defaults_to_a_plain_chat_model() -> None:
+    assert ModelProfile().model_dump() == {
+        "reasoning_output": False,
+        "temperature": True,
+        "max_output_tokens": None,
+        "tool_calling": True,
+    }
+
+
+def test_a_langchain_profile_validates_as_one_and_its_other_keys_are_dropped() -> None:
+    profile = ModelProfile.model_validate(LANGCHAIN_PROFILE)
+    assert profile == ModelProfile(
+        reasoning_output=True, temperature=False, max_output_tokens=128_000, tool_calling=True
+    )
+    assert "max_input_tokens" not in profile.model_dump()
+
+
+def test_a_profile_is_frozen_and_refuses_a_budget_below_one() -> None:
+    with pytest.raises(ValidationError):
+        ModelProfile().temperature = False  # type: ignore[misc]
+    with pytest.raises(ValidationError, match="max_output_tokens"):
+        ModelProfile(max_output_tokens=0)
+
+
+def test_an_endpoint_defaults_to_a_bearer_openai_compatible_route_and_a_plain_model() -> None:
+    endpoint = Endpoint(base_url="https://api.openai.com/v1")
+    assert (endpoint.gateway, endpoint.auth, endpoint.model, endpoint.api_key) == (
+        "openai-compatible",
+        "bearer",
+        None,
+        None,
+    )
+    assert endpoint.profile == ModelProfile()
+
+
+def test_an_endpoint_masks_its_key_and_a_sender_reveals_it_for_the_wire() -> None:
+    endpoint = Endpoint(base_url="http://bifrost:8080/v1", gateway="bifrost", api_key="sk-1")
+    assert "sk-1" not in repr(endpoint)
+    assert "sk-1" not in endpoint.model_dump_json()
+    assert endpoint.api_key is not None
+    wire = endpoint.model_dump(mode="json") | {"api_key": endpoint.api_key.get_secret_value()}
+    assert Endpoint.model_validate(wire) == endpoint
+
+
+def test_an_endpoint_carries_a_profile_and_round_trips() -> None:
+    endpoint = Endpoint(
+        base_url="https://aiplatform.googleapis.com/v1/projects/p/locations/l/endpoints/openapi",
+        auth="google",
+        model="google/gemini-2.5-pro",
+        profile=LANGCHAIN_PROFILE,  # type: ignore[arg-type]
+    )
+    assert endpoint.profile.reasoning_output
+    assert Endpoint.model_validate(endpoint.model_dump(mode="json")) == endpoint
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        {"base_url": "localhost:8080/v1"},  # no scheme
+        {"base_url": "ftp://models/v1"},
+        {"base_url": "https://x/v1", "gateway": ""},
+        {"base_url": "https://x/v1", "auth": ""},
+        {"base_url": "https://x/v1", "region": "us-east-1"},  # an unknown field
+    ],
+)
+def test_an_endpoint_refuses_what_no_consumer_could_call(fields: dict[str, Any]) -> None:
+    with pytest.raises(ValidationError):
+        Endpoint.model_validate(fields)
+
+
+def test_an_endpoint_is_frozen() -> None:
+    with pytest.raises(ValidationError):
+        Endpoint(base_url="https://x/v1").model = "m"  # type: ignore[misc]
 
 
 # --------------------------------------------------------------------------- tools

@@ -47,7 +47,13 @@ from trellis.contracts.events import AgentEvalEvent
 from trellis.contracts.feedback import Feedback, FeedbackSource, FeedbackTargetKind, FeedbackVerdict
 from trellis.contracts.ids import new_id, now, safe_id, stable_id
 from trellis.contracts.messages import AgentRequest, AgentResponse, AgentStatus
-from trellis.contracts.model import ModelRequest, ModelResponse, ModelUsage
+from trellis.contracts.model import (
+    Endpoint,
+    ModelProfile,
+    ModelRequest,
+    ModelResponse,
+    ModelUsage,
+)
 from trellis.contracts.ports import (
     AgentDirectory,
     AgentInterceptor,
@@ -110,6 +116,7 @@ __all__ = [
     "ArtifactRef",
     "Claim",
     "ConfigurationError",
+    "Endpoint",
     "ErrorCategory",
     "ErrorSource",
     "EvaluationProvider",
@@ -134,6 +141,7 @@ __all__ = [
     "MemoryUnavailableError",
     "ModelClient",
     "ModelError",
+    "ModelProfile",
     "ModelRequest",
     "ModelResponse",
     "ModelUsage",
