@@ -91,16 +91,13 @@ and LangGraph's suspend signals by class name, and `RETRYABLE_CATEGORIES`.
 | --- | --- |
 | `RunStatus` | Where a run is: `QUEUED`, `RUNNING`, `PAUSED` or a final status spelled like `AgentStatus`. `can_become` is the state machine and `final` says whether it has ended |
 | `RunStart` | What starting a run records. It is agent-runs' create body, and `from_request` builds it from an `AgentRequest`. Optional: `deadline`, `timeout_seconds` (working time), `agent_version`, and how a queued run waits its turn: `priority` (higher first) and `concurrency_key` (runs sharing it run a few at a time) |
-| `RunRecord` | A run as a store keeps it: the start plus status, output, error, the interrupt it waits on, the last resolution, an opaque `checkpoint` the attempt and its `usage` |
-| `RunUsage` | What a run has used so far: model and tool calls, commands, tokens, cached tokens, cost |
-| `RunMessage` | A message in a run's inbox, read by the run at its next step: its `kind`, `text`, `sender` and `position` |
-| `RunMessageKind` | What an inbox message asks: `INSTRUCTION` or `PAUSE` |
+| `RunRecord` | A run as a store keeps it: the start plus status, output, error, the interrupt it waits on, the last resolution, an opaque `checkpoint` and the attempt |
 | `RunEvent` | One event of a run's stream, in the AG-UI vocabulary, ordered by `sequence` within an `attempt` |
 | `RunEventType` | The event vocabulary: AG-UI's names plus `CONTEXT_LOADED` and `INTERRUPT` |
 | `RunOutcome` | How a run finished, as `RUN_FINISHED` reports it. `from_status` maps a settled status to it |
 | `Interrupt` | The record of a paused run: the question, the expected answer shape (`expects`) and its widget hints (`ui_schema`), the UI hint (`ui`), options (plain strings or `Option`s) and whether several may be picked (`multiple`), the asker's own screen (`component`, `props`), payload, the tool call under approval, the assignee, the deadline and the escalation |
 | `Option` | One choice an interrupt offers: the `value` an answer carries, and the `label` and `description` a person sees |
-| `InterruptReason` | `QUESTION`, `APPROVAL`, `REVIEW`, `CHOICE`, `AUTH`, `PAUSE` (a person paused the run) |
+| `InterruptReason` | `QUESTION`, `APPROVAL`, `REVIEW`, `CHOICE`, `AUTH` |
 | `InterruptUI` | The control a surface renders, `Interrupt.ui`: `approve`, `form`, `table`, `diff`, `choice` |
 | `InterruptResolution` | How an interrupt was answered, with the reviewer's `comment` and how far an approval reaches (`remember`: `once`, or the rest of the `run`). `resolves` checks it answers that interrupt, and `to_feedback` gives the feedback for a tool-call decision |
 | `InterruptRemember` | `InterruptResolution.remember`: `once` or `run` |

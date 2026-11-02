@@ -18,14 +18,23 @@ Documentation only, no change to the package:
 * ADR headers: 0002 lists 0005 and 0006 as amendments, 0005 lists 0006, 0006 lists 0007; an
   ADR index.
 
+## 0.7.0 (2026-11-02)
+
+Minor: names a consumer may use are removed ([the version rules](docs/versioning.md#the-version-rules)).
+
+* `RunMessage`, `RunMessageKind`, `RunUsage`, `RunRecord.usage` and `InterruptReason.PAUSE`
+  (0.6.4) are removed from `main`: the run inbox, a person's pause and a run's usage continue
+  on the `background-agents` branch with the harness's background agents and agent-runs' inbox,
+  and come back in the release that lands them. Everything else is 0.6.4 (which is 0.6.3 plus
+  those names). agent-runs and the harness on `main` admit it (`<0.8`).
+
 ## 0.6.4 (2026-11-02)
 
 * `RunMessage` and `RunMessageKind` (`INSTRUCTION`, `PAUSE`): a message in a run's inbox,
   which agent-runs keeps and the harness reads at each step, on any worker.
 * `InterruptReason.PAUSE`: a person paused the run; resuming continues it.
 * `RunUsage` and `RunRecord.usage`: what a run has used so far (model and tool calls, commands,
-  tokens, cost), as its executor last saved it
-  ([ADR 0010](docs/adr/0010-run-inbox-pause-and-usage.md)).
+  tokens, cost), as its executor last saved it (ADR 0010, on the `background-agents` branch).
 
 ## 0.6.3 (2026-10-30)
 
