@@ -8,9 +8,9 @@ when it merely installs. The pins below are copied from each package's `pyprojec
 
 | Package | Version | Requires `trellis-contracts` | Notes |
 |---|---|---|---|
-| `trellis-contracts` | **0.6.3** | — | this package |
-| `trellis-harness` (agent-harness) | **0.4.0** | `>=0.6.1,<0.7` | builds and reads every record; installs the sibling checkout (`../agent-contracts`) in development |
-| `agent-runs` and `trellis-runs` (its SDK) | **0.4.0** | `>=0.6.1,<0.7` | the service's create body subclasses `RunStart`; its OpenAPI document embeds these models |
+| `trellis-contracts` | **0.7.0** | — | this package |
+| `trellis-harness` (agent-harness) | **0.7.0** | `>=0.6.3,<0.8` | builds and reads every record; installs the sibling checkout (`../agent-contracts`) in development |
+| `agent-runs` and `trellis-runs` (its SDK) | **0.4.1** | `>=0.6.2,<0.8` | the service's create body subclasses `RunStart`; its OpenAPI document embeds these models |
 | `trellis-memory` (Memory Service SDK) | **0.4.0** | not a dependency | sends a `Feedback` as it is; its exceptions are classified by class name |
 | `trellis-memory-service` (agent-memory-service) | **0.3.0** | not a dependency | `POST /v1/feedback` takes the `Feedback` shape; `scope_fields()` returns its `Scope` keywords |
 | `bifrost-sdk` | **0.3.0** | not a dependency | independent; `classify()` maps its exceptions by class name |
@@ -23,10 +23,12 @@ The package is pre-1.0, and every consumer is a sibling repo that moves in the s
 
 * **Minor (0.x.0)** for anything a consumer must change for: a removed name or port, a field
   that changes meaning, a new required field. 0.4.0 (contracts v3), 0.5.0 (the `RunStore`
-  port removed) and 0.6.0 (interrupts v2) were minor.
+  port removed), 0.6.0 (interrupts v2) and 0.7.0 (the run inbox, `PAUSE` and `RunUsage` of
+  0.6.4 removed from `main`) were minor.
 * **Patch (0.x.y)** for optional fields with a default and new helpers. 0.5.1 (working-time
   limit, agent version), 0.6.1 (schedules carry queue order and metadata), 0.6.2 (the `acp`
-  error source) and 0.6.3 (`Endpoint` and `ModelProfile`) were patches.
+  error source), 0.6.3 (`Endpoint` and `ModelProfile`) and 0.6.4 (a run's inbox, `PAUSE`,
+  `RunUsage`) were patches.
 * **No aliases.** A removed name is gone in the release that removes it; the ADR says what
   replaces it.
 
