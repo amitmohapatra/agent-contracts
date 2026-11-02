@@ -18,15 +18,6 @@ Documentation only, no change to the package:
 * ADR headers: 0002 lists 0005 and 0006 as amendments, 0005 lists 0006, 0006 lists 0007; an
   ADR index.
 
-## 0.6.4 (2026-11-02)
-
-* `RunMessage` and `RunMessageKind` (`INSTRUCTION`, `PAUSE`): a message in a run's inbox,
-  which agent-runs keeps and the harness reads at each step, on any worker.
-* `InterruptReason.PAUSE`: a person paused the run; resuming continues it.
-* `RunUsage` and `RunRecord.usage`: what a run has used so far (model and tool calls, commands,
-  tokens, cost), as its executor last saved it
-  ([ADR 0010](docs/adr/0010-run-inbox-pause-and-usage.md)).
-
 ## 0.6.3 (2026-10-30)
 
 * `Endpoint`: where a model is and how to reach it (`base_url`, `gateway`, `auth`, `model`,
