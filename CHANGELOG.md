@@ -18,6 +18,12 @@ Documentation only, no change to the package:
 * ADR headers: 0002 lists 0005 and 0006 as amendments, 0005 lists 0006, 0006 lists 0007; an
   ADR index.
 
+## 0.6.5 (2026-11-03)
+
+* `Option.recommended`: `True` on the option the asker recommends, its `description` saying
+  why; left out on the wire otherwise (`exclude_none`), so a question that recommends nothing
+  reads as before.
+
 ## 0.6.4 (2026-11-02)
 
 * `RunMessage` and `RunMessageKind` (`INSTRUCTION`, `PAUSE`): a message in a run's inbox,

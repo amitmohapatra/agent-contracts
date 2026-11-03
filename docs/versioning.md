@@ -8,11 +8,11 @@ when it merely installs. The pins below are copied from each package's `pyprojec
 
 | Package | Version | Requires `trellis-contracts` | Notes |
 |---|---|---|---|
-| `trellis-contracts` | **0.6.4** | — | this package |
-| `trellis-harness` (agent-harness) | **0.4.0** | `>=0.6.1,<0.7` | builds and reads every record; installs the sibling checkout (`../agent-contracts`) in development |
+| `trellis-contracts` | **0.6.5** | — | this package |
+| `trellis-harness` (agent-harness) | **0.4.0** | `>=0.6.5,<0.8` | builds and reads every record; installs the sibling checkout (`../agent-contracts`) in development |
 | `agent-runs` and `trellis-runs` (its SDK) | **0.4.0** | `>=0.6.1,<0.7` | the service's create body subclasses `RunStart`; its OpenAPI document embeds these models |
 | `trellis-memory` (Memory Service SDK) | **0.4.0** | not a dependency | sends a `Feedback` as it is; its exceptions are classified by class name |
-| `trellis-memory-service` (agent-memory-service) | **0.3.0** | not a dependency | `POST /v1/feedback` takes the `Feedback` shape; `scope_fields()` returns its `Scope` keywords |
+| `trellis-memory-service` (agent-memory-service) | **0.3.0** | `>=0.6.3,<0.7` | `POST /v1/feedback` takes the `Feedback` shape; `scope_fields()` returns its `Scope` keywords |
 | `bifrost-sdk` | **0.3.0** | not a dependency | independent; `classify()` maps its exceptions by class name |
 | `pydantic` | `>=2.13,<3` | — | the only runtime dependency |
 | Python | `>=3.12` | — | `StrEnum`, PEP 695 generics |
@@ -27,7 +27,7 @@ The package is pre-1.0, and every consumer is a sibling repo that moves in the s
 * **Patch (0.x.y)** for optional fields with a default and new helpers. 0.5.1 (working-time
   limit, agent version), 0.6.1 (schedules carry queue order and metadata), 0.6.2 (the `acp`
   error source), 0.6.3 (`Endpoint` and `ModelProfile`) and 0.6.4 (a run's inbox, `PAUSE`,
-  `RunUsage`) were patches.
+  `RunUsage`) and 0.6.5 (`Option.recommended`) were patches.
 * **No aliases.** A removed name is gone in the release that removes it; the ADR says what
   replaces it.
 
