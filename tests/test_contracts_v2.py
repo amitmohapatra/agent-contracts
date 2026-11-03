@@ -1038,6 +1038,12 @@ def test_options_are_plain_strings_or_options_with_a_label(ctx: AgentExecutionCo
     ]
     assert Interrupt.model_validate(awaiting) == asked
     assert Option(value="eu").label is None
+    # the recommended one says so on the wire; the others leave the field out
+    best = Option(value="eu", description="the nearest", recommended=True)
+    assert _interrupt(ctx, options=[best, "us"]).awaiting()["options"] == [
+        {"value": "eu", "description": "the nearest", "recommended": True},
+        "us",
+    ]
     with pytest.raises(ValidationError, match="distinct values"):
         _interrupt(ctx, options=["eu", Option(value="eu", label="Europe")])
     with pytest.raises(ValidationError, match="needs a value"):

@@ -99,7 +99,7 @@ and LangGraph's suspend signals by class name, and `RETRYABLE_CATEGORIES`.
 | `RunEventType` | The event vocabulary: AG-UI's names plus `CONTEXT_LOADED` and `INTERRUPT` |
 | `RunOutcome` | How a run finished, as `RUN_FINISHED` reports it. `from_status` maps a settled status to it |
 | `Interrupt` | The record of a paused run: the question, the expected answer shape (`expects`) and its widget hints (`ui_schema`), the UI hint (`ui`), options (plain strings or `Option`s) and whether several may be picked (`multiple`), the asker's own screen (`component`, `props`), payload, the tool call under approval, the assignee, the deadline and the escalation |
-| `Option` | One choice an interrupt offers: the `value` an answer carries, and the `label` and `description` a person sees |
+| `Option` | One choice an interrupt offers: the `value` an answer carries, and the `label` and `description` a person sees, and `recommended` on the one the asker recommends (its `description` saying why) |
 | `InterruptReason` | `QUESTION`, `APPROVAL`, `REVIEW`, `CHOICE`, `AUTH`, `PAUSE` (a person paused the run) |
 | `InterruptUI` | The control a surface renders, `Interrupt.ui`: `approve`, `form`, `table`, `diff`, `choice` |
 | `InterruptResolution` | How an interrupt was answered, with the reviewer's `comment` and how far an approval reaches (`remember`: `once`, or the rest of the `run`). `resolves` checks it answers that interrupt, and `to_feedback` gives the feedback for a tool-call decision |
