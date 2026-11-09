@@ -922,7 +922,16 @@ def test_everything_new_is_exported_and_the_version_is_the_installed_one() -> No
         "now",
     ):
         assert name in contracts.__all__ and hasattr(contracts, name), name
-    assert contracts.__version__ == md.version("trellis-contracts") == "0.6.5"
+    assert contracts.__version__ == md.version("trellis-contracts") == "0.7.0"
+
+
+def test_the_run_inbox_is_not_on_main() -> None:
+    """0.7.0 removed the run inbox, a person's pause and a run's usage (0.6.4): they continue on
+    the background-agents branch, and a minor release says a consumer must change."""
+    for name in ("RunMessage", "RunMessageKind", "RunUsage"):
+        assert name not in contracts.__all__ and not hasattr(contracts, name), name
+    assert "PAUSE" not in contracts.InterruptReason.__members__
+    assert "usage" not in contracts.RunRecord.model_fields
 
 
 @pytest.mark.parametrize(

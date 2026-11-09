@@ -213,8 +213,6 @@ class InterruptReason(StrEnum):
     CHOICE = "CHOICE"
     #: a credential or consent the person must supply
     AUTH = "AUTH"
-    #: a person paused the run (a ``PAUSE`` message in its inbox); resuming continues it
-    PAUSE = "PAUSE"
 
 
 #: The control a surface renders for an interrupt.
@@ -546,66 +544,6 @@ class InterruptResolution(BaseModel):
         )
 
 
-class RunUsage(BaseModel):
-    """What a run has used so far, its sub-agents' runs included, as its executor counts it
-    and saves it with its progress, its pause and its ending."""
-
-    model_config = ConfigDict(frozen=True, extra="ignore")
-
-    model_calls: int = Field(default=0, ge=0, description="Model calls made.")
-    tool_calls: int = Field(default=0, ge=0, description="Tool calls made, commands included.")
-    commands: int = Field(
-        default=0, ge=0, description="Tool calls that ran a shell or sandbox command."
-    )
-    tokens: int = Field(default=0, ge=0, description="Input and output tokens of every call.")
-    cached_tokens: int = Field(default=0, ge=0, description="Input tokens read from a cache.")
-    cost: float = Field(
-        default=0.0, ge=0, description="US dollars, as the model gateway reported them."
-    )
-
-
-class RunMessageKind(StrEnum):
-    """What a message in a run's inbox asks of the run."""
-
-    #: an instruction the run takes at its next step, its work so far kept
-    INSTRUCTION = "INSTRUCTION"
-    #: pause at the next step and wait for a person to resume the run
-    PAUSE = "PAUSE"
-
-
-class RunMessage(BaseModel):
-    """A message in a run's inbox: sent by a person (or an agent acting for them) to a run
-    on any worker, and read by the run at its next step. ``position`` orders a run's inbox
-    from 1; a reader keeps the last position it took and reads past it."""
-
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    message_id: str = Field(
-        min_length=1,
-        max_length=200,
-        description="The sender's id for the message: sending it again adds nothing.",
-    )
-    tenant_id: str = Field(description="Tenant of the run.")
-    run_id: str = Field(description="Id of the run the message is for.")
-    kind: RunMessageKind = Field(description="What the message asks of the run.")
-    text: str | None = Field(
-        default=None,
-        max_length=32_000,
-        description="The instruction (required for INSTRUCTION; none for PAUSE).",
-    )
-    sender: str = Field(description="The principal who sent it, as ``kind:id``.")
-    position: int = Field(ge=1, description="Its place in the run's inbox, from 1.")
-    created_at: AwareDatetime = Field(
-        default_factory=now, description="When the inbox took it (ISO 8601, timezone-aware)."
-    )
-
-    @model_validator(mode="after")
-    def _instruction_has_text(self) -> Self:
-        if self.kind is RunMessageKind.INSTRUCTION and not (self.text or "").strip():
-            raise ValueError("an instruction carries its text")
-        return self
-
-
 class RunRecord(RunStart):
     """A run as a run store keeps it: the start plus where it is. ``awaiting`` is the
     interrupt a paused run waits on and nothing else; ``error`` belongs to a failed ending.
@@ -654,11 +592,6 @@ class RunRecord(RunStart):
         ge=0,
         description="Working time so far, in seconds: time RUNNING across every attempt, "
         "what timeout_seconds limits.",
-    )
-    usage: RunUsage | None = Field(
-        default=None,
-        description="What the run has used so far (model and tool calls, commands, tokens, "
-        "cost), as its executor last saved it; None until it saved any.",
     )
     created_at: AwareDatetime = Field(
         default_factory=now,
