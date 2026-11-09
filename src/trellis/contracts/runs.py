@@ -223,7 +223,8 @@ InterruptRemember = Literal["once", "run"]
 
 class Option(BaseModel):
     """One choice an interrupt offers. ``value`` is what an answer that picks it carries;
-    ``label`` and ``description`` are what a person sees. A plain string among
+    ``label`` and ``description`` are what a person sees; ``recommended`` marks the one the
+    asker recommends, its ``description`` saying why. A plain string among
     ``Interrupt.options`` is an option whose value is that string, shown as it is."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -239,6 +240,11 @@ class Option(BaseModel):
     )
     description: str | None = Field(
         default=None, description="A longer explanation shown with the label; None for none."
+    )
+    recommended: bool | None = Field(
+        default=None,
+        description="True on the option the asker recommends (its description says why); "
+        "None (left out on the wire) on the others.",
     )
 
     @field_validator("value")
