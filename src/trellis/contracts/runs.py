@@ -217,8 +217,9 @@ class InterruptReason(StrEnum):
 
 #: The control a surface renders for an interrupt.
 InterruptUI = Literal["approve", "form", "table", "diff", "choice"]
-#: How far a decision reaches: this call only, or calls like it for the rest of the run.
-InterruptRemember = Literal["once", "run"]
+#: How far an approval reaches: this call only, the conversation's later calls of the tool
+#: (``run``), or the person's calls of it in every conversation until revoked (``always``).
+InterruptRemember = Literal["once", "run", "always"]
 
 
 class Option(BaseModel):
@@ -481,8 +482,11 @@ class InterruptResolution(BaseModel):
     )
     remember: InterruptRemember = Field(
         default="once",
-        description="once: the decision covers this call only. run: approve calls like it for "
-        "the rest of the run without asking again (APPROVE of a tool call only).",
+        description="once: the decision covers this call only. run: for this conversation - "
+        "approve the tool's later calls in this run and in later runs of the same thread for "
+        "the same user without asking again. always: approve them for this user in every "
+        "conversation until the permission is revoked. run and always: APPROVE of a tool "
+        "call only.",
     )
     resolved_at: AwareDatetime = Field(
         default_factory=now,
@@ -493,8 +497,8 @@ class InterruptResolution(BaseModel):
     def _an_edit_says_what_changed(self) -> Self:
         if self.decision == InterruptDecision.EDIT and not self.payload:
             raise ValueError("an EDIT decision carries the edited arguments in payload")
-        if self.remember == "run" and self.decision != InterruptDecision.APPROVE:
-            raise ValueError("only an approval is remembered for the run")
+        if self.remember != "once" and self.decision != InterruptDecision.APPROVE:
+            raise ValueError("only an approval is remembered beyond its call")
         return self
 
     def resolves(self, interrupt: Interrupt) -> bool:

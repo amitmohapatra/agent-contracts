@@ -18,6 +18,16 @@ Documentation only, no change to the package:
 * ADR headers: 0002 lists 0005 and 0006 as amendments, 0005 lists 0006, 0006 lists 0007; an
   ADR index.
 
+## 0.7.1 (2026-11-10)
+
+* `InterruptRemember` gains `always`: an approval that allows the tool for the user in every
+  conversation until the permission is revoked (the harness keeps it in the memory service's
+  tool permissions). `run` now reads "for this conversation": the tool's later calls in later
+  runs of the same thread for the same user, as the harness has kept it since its "Allow for
+  this conversation" choice. Only an `APPROVE` is remembered beyond its call. A reader that
+  receives `always` needs 0.7.1, so a run store (agent-runs) that keeps resolutions takes it
+  before a harness sends one.
+
 ## 0.7.0 (2026-11-09)
 
 Minor: names a consumer may use are removed ([the version rules](docs/versioning.md#the-version-rules)).

@@ -8,7 +8,7 @@ when it merely installs. The pins below are copied from each package's `pyprojec
 
 | Package | Version | Requires `trellis-contracts` | Notes |
 |---|---|---|---|
-| `trellis-contracts` | **0.7.0** | — | this package |
+| `trellis-contracts` | **0.7.1** | — | this package |
 | `trellis-harness` (agent-harness) | **0.7.0** | `>=0.6.5,<0.8` | builds and reads every record; installs the sibling checkout (`../agent-contracts`) in development |
 | `agent-runs` and `trellis-runs` (its SDK) | **0.4.1** | `>=0.6.2,<0.8` | the service's create body subclasses `RunStart`; its OpenAPI document embeds these models |
 | `trellis-memory` (Memory Service SDK) | **0.4.0** | not a dependency | sends a `Feedback` as it is; its exceptions are classified by class name |
@@ -28,7 +28,8 @@ The package is pre-1.0, and every consumer is a sibling repo that moves in the s
 * **Patch (0.x.y)** for optional fields with a default and new helpers. 0.5.1 (working-time
   limit, agent version), 0.6.1 (schedules carry queue order and metadata), 0.6.2 (the `acp`
   error source), 0.6.3 (`Endpoint` and `ModelProfile`), 0.6.4 (a run's inbox, `PAUSE`,
-  `RunUsage`) and 0.6.5 (`Option.recommended`) were patches.
+  `RunUsage`), 0.6.5 (`Option.recommended`) and 0.7.1 (`InterruptRemember` gains `always`)
+  were patches.
 * **No aliases.** A removed name is gone in the release that removes it; the ADR says what
   replaces it.
 

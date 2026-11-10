@@ -16,7 +16,7 @@ callers most often rely on, and whether you get them without asking.
 | `RunStart.priority` | `0` (range -1000 to 1000, higher is claimed first) | no | `RunStart(..., priority=10)` |
 | `RunStart.concurrency_key` | `None`: no limit | no | `RunStart(..., concurrency_key="thread:chat-42")` |
 | `Interrupt.ui` | `"approve"` | yes | `Interrupt.from_paused(..., ui="choice", options=[...])` |
-| `InterruptResolution.remember` | `"once"` | yes | `InterruptResolution(..., remember="run")` (an `APPROVE` only) |
+| `InterruptResolution.remember` | `"once"` | yes | `InterruptResolution(..., remember="run")` or `remember="always"` (an `APPROVE` only) |
 | `ScheduleSpec.timezone` | `"UTC"` | yes | `ScheduleSpec(..., timezone="Europe/Berlin")` |
 | `ScheduleSpec.enabled` | `True` | yes | `ScheduleSpec(..., enabled=False)` |
 | `JudgeVerdict.as_feedback(threshold=)` | `0.5` | yes | `verdict.as_feedback(event, threshold=0.8)` |

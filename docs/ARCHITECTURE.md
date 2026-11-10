@@ -416,7 +416,7 @@ classDiagram
     +interrupt_id, run_id
     +decision: InterruptDecision
     +answer, reviewer, payload, comment
-    +remember: once | run, resolved_at
+    +remember: once | run | always, resolved_at
     +resolves(interrupt) bool
     +feedback_id str
     +to_feedback(interrupt, context) Feedback
@@ -480,7 +480,8 @@ classDiagram
 option values are distinct and not blank; `multiple` needs `options` or `expects`; `props`
 needs a `component` (a component needs no `expects`).
 `InterruptResolution` validation: an `EDIT` carries the edited arguments in `payload`; only
-an `APPROVE` may be remembered for the run (`remember="run"`).
+an `APPROVE` may be remembered beyond its call (`remember="run"`: the conversation;
+`"always"`: the user, until revoked).
 `Feedback` validation: `target_id` is not blank, a `CORRECT` or `EDIT` verdict carries a
 `correction`, and `score` is a number in [0, 1] (strict, so `True` is not read as `1.0`).
 
