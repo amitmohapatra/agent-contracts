@@ -922,7 +922,7 @@ def test_everything_new_is_exported_and_the_version_is_the_installed_one() -> No
         "now",
     ):
         assert name in contracts.__all__ and hasattr(contracts, name), name
-    assert contracts.__version__ == md.version("trellis-contracts") == "0.7.0"
+    assert contracts.__version__ == md.version("trellis-contracts") == "0.7.1"
 
 
 def test_the_run_inbox_is_not_on_main() -> None:
@@ -1111,10 +1111,25 @@ def test_a_decision_may_carry_a_comment_and_be_remembered_for_the_run(
     rejected = resolve(InterruptDecision.REJECT, comment="too much")
     assert rejected.comment == "too much"
     for decision in (InterruptDecision.REJECT, InterruptDecision.ANSWER):
-        with pytest.raises(ValidationError, match="only an approval"):
-            resolve(decision, remember="run")
+        for reach in ("run", "always"):
+            with pytest.raises(ValidationError, match="only an approval"):
+                resolve(decision, remember=reach)
     with pytest.raises(ValidationError):
         resolve(InterruptDecision.APPROVE, remember="forever")
+
+
+def test_an_approval_may_be_remembered_always(ctx: AgentExecutionContext) -> None:
+    """``always``: the person allows the tool in every conversation of theirs until revoked
+    (0.7.1), carried on the wire as it was said."""
+    call = ToolCall(tool="crm.update", args={"id": 7}, idempotency_key="call-2")
+    interrupt = _interrupt(ctx, reason=InterruptReason.APPROVAL, tool_call=call)
+    always = InterruptResolution(
+        interrupt_id=interrupt.interrupt_id,
+        run_id=interrupt.run_id,
+        decision=InterruptDecision.APPROVE,
+        remember="always",
+    )
+    assert InterruptResolution.model_validate_json(always.model_dump_json()).remember == "always"
 
 
 def test_a_queued_run_has_a_priority_and_may_share_a_concurrency_key() -> None:
