@@ -398,6 +398,10 @@ def test_bifrost_sdk_errors_are_classified_by_name(name: str, category: ErrorCat
 def test_every_source_in_use_is_accepted(source: str) -> None:
     assert AgentError(code="X", source=source).source == source  # type: ignore[arg-type]
     assert AgentError.of(RuntimeError(), source=source).source == source
+    # unqualified, the source is stored as it is and adds no qualifier to details
+    assert AgentError(code="X", source=source).details == {}  # type: ignore[arg-type]
+    kept = AgentError(code="X", source=source, details={"order": 91})  # type: ignore[arg-type]
+    assert kept.details == {"order": 91}
 
 
 def test_the_sources_are_the_components_that_report_failures() -> None:

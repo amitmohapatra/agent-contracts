@@ -8,6 +8,7 @@ from pydantic import ValidationError
 
 from trellis.contracts import (
     A2A_PROTOCOL_VERSION,
+    AgentCard,
     AgentEvalEvent,
     AgentInterface,
     AgentProvider,
@@ -48,6 +49,20 @@ def test_card_parts_read_either_spelling_and_write_camel_case() -> None:
         by_alias=True
     )["outputModes"] == ["application/json"]
     assert A2A_PROTOCOL_VERSION == "1.0"
+
+
+def test_a_card_that_claims_no_capability_promises_none() -> None:
+    """A caller reads ``streaming`` and ``pushNotifications`` to decide whether to open an SSE
+    stream or register a webhook: a card that says nothing must not promise either."""
+    card = AgentCard.from_a2a(
+        {"name": "other", "url": "https://other.example/a2a", "version": "1.0.0"}
+    )
+    assert card.to_a2a()["capabilities"] == {
+        "streaming": False,
+        "pushNotifications": False,
+        "stateTransitionHistory": False,
+        "extensions": [],
+    }
 
 
 def test_an_eval_event_carries_references_and_defaults_to_a_success() -> None:
