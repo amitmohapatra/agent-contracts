@@ -433,6 +433,14 @@ def test_a_qualified_source_keeps_its_qualifier_in_details() -> None:
     assert AgentError(code="X", source="mcp.erp.get").details == {"source_detail": "erp.get"}  # type: ignore[arg-type]
 
 
+def test_input_that_is_not_a_mapping_is_left_to_pydantic_to_refuse() -> None:
+    """The qualifier hook reads a mapping only: anything else reaches the fields and is a
+    ValidationError, never an AttributeError from the hook."""
+    for value in ("boom", 42, ["mcp.refund"]):
+        with pytest.raises(ValidationError):
+            AgentError.model_validate(value)
+
+
 def test_a_qualified_source_with_unusable_details_is_left_for_validation_to_refuse() -> None:
     with pytest.raises(ValidationError, match="details"):
         AgentError(code="X", source="mcp.refund", details="not a dict")  # type: ignore[arg-type]
