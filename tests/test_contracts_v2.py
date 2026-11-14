@@ -545,6 +545,23 @@ def test_feedback_is_bounded_and_bound_to_the_request(ctx: AgentExecutionContext
         Feedback.for_context(ctx, **confirm, source="bot")  # type: ignore[arg-type]
 
 
+def test_a_run_outcome_the_platform_derives_is_system_feedback() -> None:
+    """The harness files a run's outcome from its final status, from no reviewer: the wire
+    value ``system`` is a source the contract knows, and an unknown source is still refused."""
+    outcome = Feedback.model_validate(
+        {
+            "tenant_id": "acme",
+            "target_kind": "run",
+            "target_id": "run_1",
+            "verdict": "confirm",
+            "source": "system",
+        }
+    )
+    assert outcome.source is FeedbackSource.SYSTEM and outcome.reviewer is None
+    with pytest.raises(ValidationError):
+        Feedback.model_validate({**outcome.model_dump(mode="json"), "source": "nobody"})
+
+
 def test_a_judge_verdict_becomes_judge_feedback_on_the_answer() -> None:
     event = AgentEvalEvent(
         agent_id="a", agent_run_id="run_1", tenant_id="acme", trace_id=TRACE, result_ref="art_9"

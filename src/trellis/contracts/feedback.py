@@ -45,9 +45,13 @@ _NEEDS_CORRECTION = frozenset({FeedbackVerdict.CORRECT, FeedbackVerdict.EDIT})
 
 
 class FeedbackSource(StrEnum):
+    """Who a judgement is from: a person, a judge model, a person's answer to an interrupt,
+    or the platform itself (``SYSTEM``: derived from a run's final status, by no reviewer)."""
+
     HUMAN = "human"
     JUDGE = "judge"
     INTERRUPT = "interrupt"
+    SYSTEM = "system"
 
 
 #: the identity a record takes from the request it was given in; never overridable by a caller
