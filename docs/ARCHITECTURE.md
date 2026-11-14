@@ -391,7 +391,7 @@ classDiagram
     +output, error: AgentError
     +awaiting: Interrupt
     +last_resolution: InterruptResolution
-    +checkpoint, attempt, worked_seconds, created_at, updated_at
+    +checkpoint, attempt, worked_seconds, created_at, updated_at, placed_at
     +final bool
     +from_start(start, status)$ RunRecord
   }

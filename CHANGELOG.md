@@ -6,7 +6,14 @@ What changed in each version of `trellis-contracts`. Why each change was made is
 
 ## Unreleased
 
-Documentation only, no change to the package:
+* `RunRecord.placed_at` (optional, read-only, set by the run store): a run's place among the
+  runs sharing its `concurrency_key` — when it was started, or when its latest answer was
+  recorded. Additive: a reader that does not know it ignores it (`RunRecord` ignores unknown
+  fields), and a record from a store that does not send it reads `None`. agent-runs computes
+  it under the key's lock; the harness orders a conversation's turns by it instead of
+  recomputing it.
+
+Documentation:
 
 * A "Start here" README; the export list moved to [docs/api.md](docs/api.md); the run
   lifecycle, wire conventions and the record lifecycle sequence live once, in
