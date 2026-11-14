@@ -112,7 +112,7 @@ and LangGraph's suspend signals by class name, and `RETRYABLE_CATEGORIES`.
 | `Feedback` | One judgement about one target. `for_context` binds it to the identity of the request it was given in |
 | `FeedbackTargetKind` | `run`, `answer`, `memory`, `tool_call`, `brief`, `procedure` |
 | `FeedbackVerdict` | `confirm`, `reject`, `correct`, `approve`, `edit`. `correct` and `edit` need a `correction` |
-| `FeedbackSource` | `human`, `judge`, `interrupt` |
+| `FeedbackSource` | `human`, `judge`, `interrupt`, `system` (derived from a run's final status) |
 | `JudgeVerdict` | A judge's score in [0, 1] with its method, model and cost. `as_feedback` turns it into a `Feedback` |
 | `JudgeMethod` | `grounded` (deterministic citation and claim checks) or `llm` |
 | `AgentEvalEvent` (from `events`) | What a judge scores a finished run from. It carries references, not payloads |

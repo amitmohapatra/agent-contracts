@@ -6,6 +6,10 @@ What changed in each version of `trellis-contracts`. Why each change was made is
 
 ## Unreleased
 
+* `FeedbackSource.SYSTEM` (`"system"`): a judgement the platform derives from a run's final
+  status, from no reviewer. The harness already files run outcomes with it and the memory
+  service's own enum has it; the contract now lists it. Additive.
+
 * `RunRecord.placed_at` (optional, read-only, set by the run store): a run's place among the
   runs sharing its `concurrency_key` — when it was started, or when its latest answer was
   recorded. Additive: a reader that does not know it ignores it (`RunRecord` ignores unknown
