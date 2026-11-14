@@ -148,7 +148,7 @@ def test_a_service_queuing_a_run_nobody_waits_on_mints_its_id() -> None:
 
 
 def test_a_record_holds_its_own_invariants(ctx: AgentExecutionContext) -> None:
-    base = {"run_id": ctx.agent_run_id, "tenant_id": "acme", "agent_id": "a"}
+    base: dict[str, Any] = {"run_id": ctx.agent_run_id, "tenant_id": "acme", "agent_id": "a"}
     with pytest.raises(ValidationError, match="PAUSED run waits"):
         RunRecord(**base, status=RunStatus.PAUSED)
     with pytest.raises(ValidationError, match="PAUSED run waits"):
@@ -175,6 +175,22 @@ def test_a_record_holds_its_own_invariants(ctx: AgentExecutionContext) -> None:
         RunRecord(**base, status=RunStatus.SUCCESS, checkpoint=journal)
     # read back from a store: an unknown column is ignored, not refused
     assert RunRecord.model_validate({**base, "legacy_column": 1}).status is RunStatus.RUNNING
+
+
+def test_a_records_place_is_the_stores_and_optional(ctx: AgentExecutionContext) -> None:
+    """``placed_at`` is set by the run store and travels on the wire; a record from a store
+    that predates it reads as having none (``None``), so a reader never needs the field."""
+    start = RunStart(
+        run_id=ctx.agent_run_id, tenant_id="acme", agent_id="a", concurrency_key="thread:c1"
+    )
+    assert RunRecord.from_start(start).placed_at is None  # the store places it, not the start
+    at = datetime(2026, 11, 14, 12, 0, tzinfo=UTC)
+    placed = RunRecord.from_start(start).model_copy(update={"placed_at": at})
+    assert RunRecord.model_validate_json(placed.model_dump_json()).placed_at == at
+    older = placed.model_dump(mode="json", exclude={"placed_at"})
+    assert RunRecord.model_validate(older).placed_at is None
+    with pytest.raises(ValidationError, match="timezone"):
+        RunRecord.model_validate({**older, "placed_at": "2026-11-14T12:00:00"})
 
 
 # --------------------------------------------------------------------------- interrupts
@@ -363,7 +379,7 @@ def test_a_resolution_answers_only_its_own_interrupt(ctx: AgentExecutionContext)
 def test_a_paused_record_and_its_interrupt_share_the_tenant(ctx: AgentExecutionContext) -> None:
     """``awaiting.run_id`` and ``awaiting.tenant_id`` must both equal the record's own
     (docs/troubleshooting.md, "the interrupt belongs to another run")."""
-    base = {"run_id": ctx.agent_run_id, "tenant_id": "acme", "agent_id": "a"}
+    base: dict[str, Any] = {"run_id": ctx.agent_run_id, "tenant_id": "acme", "agent_id": "a"}
     elsewhere = _interrupt(ctx).model_copy(update={"tenant_id": "globex"})
     with pytest.raises(ValidationError, match="another run"):
         RunRecord(**base, status=RunStatus.PAUSED, awaiting=elsewhere)

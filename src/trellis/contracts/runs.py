@@ -605,6 +605,14 @@ class RunRecord(RunStart):
         default_factory=now,
         description="When the record last changed (ISO 8601, timezone-aware; UTC unless given).",
     )
+    placed_at: AwareDatetime | None = Field(
+        default=None,
+        description="Read-only, set by the run store: the run's place among the runs sharing "
+        "its concurrency_key, the order they run in (an earlier place first, then the lesser "
+        "run_id): when it was started, or when its latest answer was recorded (a run continued "
+        "after an answer takes its place again, after the runs that came in while it waited). "
+        "None for a run with no concurrency_key, and from a store older than this field.",
+    )
 
     @model_validator(mode="after")
     def _status_and_payloads_agree(self) -> Self:
