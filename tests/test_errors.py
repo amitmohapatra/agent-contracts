@@ -398,6 +398,10 @@ def test_bifrost_sdk_errors_are_classified_by_name(name: str, category: ErrorCat
 def test_every_source_in_use_is_accepted(source: str) -> None:
     assert AgentError(code="X", source=source).source == source  # type: ignore[arg-type]
     assert AgentError.of(RuntimeError(), source=source).source == source
+    # unqualified, the source is stored as it is and adds no qualifier to details
+    assert AgentError(code="X", source=source).details == {}  # type: ignore[arg-type]
+    kept = AgentError(code="X", source=source, details={"order": 91})  # type: ignore[arg-type]
+    assert kept.details == {"order": 91}
 
 
 def test_the_sources_are_the_components_that_report_failures() -> None:
@@ -427,6 +431,14 @@ def test_a_qualified_source_keeps_its_qualifier_in_details() -> None:
     dotted = AgentError(code="X", source="mcp.erp.get", details={"source_detail": "erp"})  # type: ignore[arg-type]
     assert (dotted.source, dotted.details) == ("mcp", {"source_detail": "erp"})
     assert AgentError(code="X", source="mcp.erp.get").details == {"source_detail": "erp.get"}  # type: ignore[arg-type]
+
+
+def test_input_that_is_not_a_mapping_is_left_to_pydantic_to_refuse() -> None:
+    """The qualifier hook reads a mapping only: anything else reaches the fields and is a
+    ValidationError, never an AttributeError from the hook."""
+    for value in ("boom", 42, ["mcp.refund"]):
+        with pytest.raises(ValidationError):
+            AgentError.model_validate(value)
 
 
 def test_a_qualified_source_with_unusable_details_is_left_for_validation_to_refuse() -> None:

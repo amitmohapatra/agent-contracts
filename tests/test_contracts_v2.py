@@ -351,6 +351,22 @@ def test_a_resolution_answers_only_its_own_interrupt(ctx: AgentExecutionContext)
     )
     with pytest.raises(ValueError, match="not the paused run"):
         mine.to_feedback(interrupt, stranger)
+    # the same run id under another tenant is another run: neither half alone is enough
+    same_run_other_tenant = ctx.with_fields(tenant_id="globex")
+    assert same_run_other_tenant.agent_run_id == interrupt.run_id
+    with pytest.raises(ValueError, match="not the paused run"):
+        mine.to_feedback(interrupt, same_run_other_tenant)
+    with pytest.raises(ValueError, match="not the paused run"):
+        mine.to_feedback(interrupt, ctx.with_fields(agent_run_id="run_other"))
+
+
+def test_a_paused_record_and_its_interrupt_share_the_tenant(ctx: AgentExecutionContext) -> None:
+    """``awaiting.run_id`` and ``awaiting.tenant_id`` must both equal the record's own
+    (docs/troubleshooting.md, "the interrupt belongs to another run")."""
+    base = {"run_id": ctx.agent_run_id, "tenant_id": "acme", "agent_id": "a"}
+    elsewhere = _interrupt(ctx).model_copy(update={"tenant_id": "globex"})
+    with pytest.raises(ValidationError, match="another run"):
+        RunRecord(**base, status=RunStatus.PAUSED, awaiting=elsewhere)
 
 
 # --------------------------------------------------------------------------- events
@@ -1028,6 +1044,24 @@ def test_a_run_may_limit_its_working_time_and_name_its_agent_version() -> None:
         RunRecord(**start.model_dump(), worked_seconds=-1)
 
 
+def test_a_run_names_its_agent_version_in_at_most_128_characters() -> None:
+    """ADR 0005: ``RunStart.agent_version`` is optional and at most 128 characters, the
+    bound ``ScheduleSpec`` copies into every fire."""
+    assert RunStart(tenant_id="acme", agent_id="a", agent_version="v" * 128).agent_version
+    with pytest.raises(ValidationError, match="128"):
+        RunStart(tenant_id="acme", agent_id="a", agent_version="v" * 129)
+
+
+def test_a_run_just_started_is_its_first_attempt() -> None:
+    """The lifecycle diagram's ``RunRecord (RUNNING, attempt 1)``: a resume or a re-queue
+    counts from there."""
+    start = RunStart(tenant_id="acme", agent_id="a")
+    for status in (RunStatus.RUNNING, RunStatus.QUEUED):
+        assert RunRecord.from_start(start, status=status).attempt == 1
+    with pytest.raises(ValidationError, match="greater than or equal to 1"):
+        RunRecord(**start.model_dump(), attempt=0)
+
+
 # --------------------------------------------------------------------------- 0.6.0 (ADR 0006)
 
 
@@ -1087,6 +1121,10 @@ def test_an_interrupt_may_name_its_own_screen_and_widget_hints(
         _interrupt(ctx, props={"order": 91})
     with pytest.raises(ValidationError):
         _interrupt(ctx, component="")
+    # the name is bounded as agent-runs stores it: 200 characters
+    assert _interrupt(ctx, component="c" * 200).component == "c" * 200
+    with pytest.raises(ValidationError, match="200"):
+        _interrupt(ctx, component="c" * 201)
 
 
 def test_a_decision_may_carry_a_comment_and_be_remembered_for_the_run(
@@ -1116,6 +1154,10 @@ def test_a_decision_may_carry_a_comment_and_be_remembered_for_the_run(
                 resolve(decision, remember=reach)
     with pytest.raises(ValidationError):
         resolve(InterruptDecision.APPROVE, remember="forever")
+    # ADR 0006: a comment is at most 4000 characters, on any decision
+    assert resolve(InterruptDecision.REJECT, comment="c" * 4000).comment == "c" * 4000
+    with pytest.raises(ValidationError, match="4000"):
+        resolve(InterruptDecision.REJECT, comment="c" * 4001)
 
 
 def test_an_approval_may_be_remembered_always(ctx: AgentExecutionContext) -> None:
