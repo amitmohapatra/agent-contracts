@@ -625,8 +625,7 @@ class RunRecord(RunStart):
             raise ValueError("the interrupt belongs to another run")
         if self.error is not None and self.status not in _FAILED:
             raise ValueError(f"a {self.status.value} run carries no error")
-        if self.checkpoint is not None and self.final:
-            raise ValueError("a finished run carries no checkpoint")
+        # a finished run may carry a checkpoint: the one its caller kept to rewind it from
         return self
 
     @property

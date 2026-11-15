@@ -171,8 +171,8 @@ def test_a_record_holds_its_own_invariants(ctx: AgentExecutionContext) -> None:
     assert RunRecord.model_validate_json(paused.model_dump_json()).checkpoint == journal
     assert RunRecord(**base, status=RunStatus.QUEUED, checkpoint=journal).checkpoint == journal
     assert RunRecord(**base).checkpoint is None
-    with pytest.raises(ValidationError, match="finished run carries no checkpoint"):
-        RunRecord(**base, status=RunStatus.SUCCESS, checkpoint=journal)
+    # kept past its end by a caller that rewinds ended runs (the run store keeps it on asking)
+    assert RunRecord(**base, status=RunStatus.SUCCESS, checkpoint=journal).checkpoint == journal
     # read back from a store: an unknown column is ignored, not refused
     assert RunRecord.model_validate({**base, "legacy_column": 1}).status is RunStatus.RUNNING
 

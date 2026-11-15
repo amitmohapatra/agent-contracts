@@ -6,6 +6,11 @@ What changed in each version of `trellis-contracts`. Why each change was made is
 
 ## Unreleased
 
+* A finished `RunRecord` may carry a `checkpoint`: the one its caller asked the run store to
+  keep past the run's end (agent-runs `finish` / `cancel` with `keep_checkpoint`), so an ended
+  run can be rewound. Relaxed, not added: a store that clears the checkpoint at the end, as
+  before, reads the same.
+
 * `FeedbackSource.SYSTEM` (`"system"`): a judgement the platform derives from a run's final
   status, from no reviewer. The harness already files run outcomes with it and the memory
   service's own enum has it; the contract now lists it. Additive.
