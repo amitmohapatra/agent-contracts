@@ -591,9 +591,8 @@ class RunRecord(RunStart):
     outputs, a framework's own resume state) written when the run pauses, returned on read and
     claim so another worker resumes without repeating side effects, and cleared when the run
     finishes unless its caller asks the store to keep it (to rewind the ended run from); the
-    service bounds its size. Read back from a store, so unknown columns are
-    ignored rather than refused; :meth:`read` ignores them in ``awaiting`` and
-    ``last_resolution`` too."""
+    service bounds its size. Read back from a store, so unknown columns are ignored rather
+    than refused; :meth:`read` ignores them in ``awaiting`` and ``last_resolution`` too."""
 
     model_config = ConfigDict(frozen=True, extra="ignore")
 
@@ -703,7 +702,7 @@ class RunRecord(RunStart):
         if to.final and not keep_checkpoint:
             cleared["checkpoint"] = None
         return type(self).model_validate(
-            {**self.model_dump(), "updated_at": now(), **changes, **cleared, "status": to}
+            {**dict(self), "updated_at": now(), **changes, **cleared, "status": to}
         )
 
 
