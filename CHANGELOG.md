@@ -61,6 +61,10 @@ What changed in each version of `trellis-contracts`. Why each change was made is
 
 Documentation:
 
+* The `RunRecord` docstring, the `checkpoint` field description and
+  [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) said a final record carries no `checkpoint`;
+  it does when its caller asked the store to keep it. [docs/troubleshooting.md](docs/troubleshooting.md)
+  listed an error (`a finished run carries no checkpoint`) the package no longer raises.
 * A "Start here" README; the export list moved to [docs/api.md](docs/api.md); the run
   lifecycle, wire conventions and the record lifecycle sequence live once, in
   [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).

@@ -590,7 +590,8 @@ class RunRecord(RunStart):
     ``checkpoint`` is opaque executor state (the resume journal: answered asks, completed tool
     outputs, a framework's own resume state) written when the run pauses, returned on read and
     claim so another worker resumes without repeating side effects, and cleared when the run
-    finishes; the service bounds its size. Read back from a store, so unknown columns are
+    finishes unless its caller asks the store to keep it (to rewind the ended run from); the
+    service bounds its size. Read back from a store, so unknown columns are
     ignored rather than refused; :meth:`read` ignores them in ``awaiting`` and
     ``last_resolution`` too."""
 
@@ -620,7 +621,8 @@ class RunRecord(RunStart):
     checkpoint: dict[str, Any] | None = Field(
         default=None,
         description="Opaque executor state (resume journal) written with a pause and "
-        "returned on read and claim; never on a final run. Size bounded by the service.",
+        "returned on read and claim; on a final run only when its caller asked the store to "
+        "keep it. Size bounded by the service.",
     )
     attempt: int = Field(
         default=1,

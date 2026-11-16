@@ -197,7 +197,9 @@ stateDiagram-v2
 * A `PAUSED` record carries `awaiting` (the `Interrupt`), and no other record does. The
   interrupt names the same `run_id` and `tenant_id` as the record.
 * Only `ERROR`, `TIMEOUT` and `REJECTED` carry an `error`.
-* A final record carries no `checkpoint`.
+* A final record carries a `checkpoint` only when its caller asked the store to keep it
+  (agent-runs `finish` or `cancel` with `keep_checkpoint`), to rewind the ended run from.
+  This is not checked: a final record with a checkpoint is valid.
 * `attempt >= 1`, and every timestamp is timezone-aware.
 
 `RunRecord.moved(to, **changes)` gives the record after a transition. It refuses a move the

@@ -35,8 +35,9 @@ together. Set both when pausing, and clear `awaiting` when resuming.
 the record's own. Build the interrupt with `Interrupt.from_paused(..., context=ctx)` so they
 come from the same context.
 
-**`a finished run carries no checkpoint`.** Clear `checkpoint` when a run reaches a final
-status. agent-runs does this on `finish`.
+**A finished run still has a `checkpoint`.** Its caller asked the store to keep it (agent-runs
+`finish` or `cancel` with `keep_checkpoint`), to rewind the ended run from. A store clears it
+at the end otherwise, and `RunRecord.moved` does the same unless `keep_checkpoint=True`.
 
 **`can_become` says no, and agent-runs answers 409.** The transition is not in the state
 machine; [the run's lifecycle](ARCHITECTURE.md#a-runs-lifecycle) lists every allowed one. A
