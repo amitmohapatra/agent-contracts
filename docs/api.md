@@ -65,7 +65,7 @@ Every name below is in `trellis.contracts.__all__` and importable from `trellis.
 
 | Name | What it is |
 | --- | --- |
-| `AgentError` | A normalised, serialisable failure with `category`, `retryable` and `source`. `AgentError.of(exc)` builds one from any exception, keeping the exception's own `retryable` when it has one |
+| `AgentError` | A normalised, serialisable failure with `category`, `retryable` and `source`. `AgentError.of(exc)` builds one from any exception, keeping the exception's own `retryable` when it has one; `category=` and `retryable=` win when passed, and a `source=` outside `ErrorSource` leaves the source `None` with the name in `details.source_detail` |
 | `ErrorCategory` | The closed set of failure categories |
 | `ErrorSource` | The components that report failures, `AgentError.source`: `agent-runs`, `tools`, `mcp`, `a2a`, `memory` and the harness's adapters (`function`, `langgraph`, `openai_agents`, `claude_agent_sdk`, `acp`, `react`). A qualified `mcp.<tool>` is stored as `mcp` with the tool in `details.source_detail` |
 | `ERROR_SOURCES` | `ErrorSource` as a set |

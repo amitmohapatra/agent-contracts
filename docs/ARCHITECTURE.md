@@ -572,8 +572,8 @@ classDiagram
 ```
 
 `AgentPaused` is deliberately not a `HarnessError`, because a pause is not a failure.
-`AgentError.of(exc)` normalises any exception. A `HarnessError` keeps its own
-classification, and anything else is sorted by `classify()`:
+`AgentError.of(exc)` normalises any exception. A `category=` passed to it wins; without
+one a `HarnessError` keeps its own category, and anything else is sorted by `classify()`:
 
 ```mermaid
 flowchart TD
@@ -596,7 +596,7 @@ Then whether it is retryable, first answer wins:
 flowchart LR
   A{"retryable= passed<br/>to AgentError.of?"} -- yes --> USE[that value]
   A -- no --> O{"exception has a bool<br/>retryable attribute?"}
-  O -- yes --> OWN["the exception's own<br/>(Memory Service SDK, bifrost-sdk)"]
+  O -- yes --> OWN["the exception's own<br/>(a HarnessError, Memory Service SDK, bifrost-sdk)"]
   O -- no --> CAT{"category in<br/>RETRYABLE_CATEGORIES?"}
   CAT -- yes --> YES[retryable]
   CAT -- no --> NO[not retryable]

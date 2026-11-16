@@ -6,6 +6,20 @@ What changed in each version of `trellis-contracts`. Why each change was made is
 
 ## Unreleased
 
+* `AgentError.of` applies `category=` and `retryable=` to a `HarnessError` too. It returned
+  the error's own classification before reading them, so
+  `AgentError.of(ToolError(), retryable=True)` was not retryable. Without them a
+  `HarnessError` keeps its own, as before.
+
+* `AgentError.of` and `HarnessError.to_error` no longer raise on a source outside
+  `ErrorSource`. They run on the failure path, and the harness passes its adapter's name as
+  the source: an adapter this version does not list raised a `ValidationError` in place of
+  the run's error. The source is now `None` and the name is kept in
+  `details.source_detail`. A blank source is no source. `AgentError(source=...)` and
+  `model_validate` still refuse an unknown source: the vocabulary of a stored error stays
+  closed ([ADR 0003](docs/adr/0003-documented-fields-and-closed-vocabularies.md), which had
+  the two normalisers refuse it too).
+
 The next release is 0.8.0, a minor ([the version rules](docs/versioning.md#the-version-rules)):
 a naive context deadline is refused, and copies are validated. The version in
 `pyproject.toml` stays 0.7.1 until agent-harness, agent-runs and agent-memory-service, which
