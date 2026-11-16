@@ -13,7 +13,7 @@ from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from typing import Any, Self
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
 from trellis.contracts.ids import new_id, safe_id, stable_id
 
@@ -111,7 +111,7 @@ class AgentExecutionContext(BaseModel):
     )
 
     # -- deadline (absolute, timezone-aware)
-    deadline: datetime | None = Field(
+    deadline: AwareDatetime | None = Field(
         default=None,
         description="Absolute time the execution must end by (ISO 8601, timezone-aware); a "
         "child's never outlives its parent's. None for no deadline.",
@@ -177,7 +177,7 @@ class AgentExecutionContext(BaseModel):
         agent_run_id: str | None = None,
         agent_group_id: str | None = None,
         task_id: str | None = None,
-        deadline: datetime | None = None,
+        deadline: AwareDatetime | None = None,
         metadata: Mapping[str, Any] | None = None,
     ) -> Self:
         """A child context for a nested agent run.
@@ -205,7 +205,7 @@ class AgentExecutionContext(BaseModel):
             changes["group_ids"] = tuple(changes["group_ids"])
         return self.model_copy(update=changes)
 
-    def with_deadline(self, deadline: datetime | None) -> Self:
+    def with_deadline(self, deadline: AwareDatetime | None) -> Self:
         """Tighten the deadline. A child deadline never outlives the parent's (§38)."""
         return self.model_copy(update={"deadline": _earliest(self.deadline, deadline)})
 
@@ -294,9 +294,12 @@ class AgentExecutionContext(BaseModel):
         }
 
 
-def _earliest(a: datetime | None, b: datetime | None) -> datetime | None:
-    if a is None:
-        return b
-    if b is None:
-        return a
-    return min(a, b)
+def _earliest(kept: datetime | None, given: datetime | None) -> datetime | None:
+    """The earlier of the deadline a context has and one it is given."""
+    if given is not None and given.utcoffset() is None:
+        raise ValueError("a deadline is timezone-aware")
+    if kept is None:
+        return given
+    if given is None:
+        return kept
+    return min(kept, given)

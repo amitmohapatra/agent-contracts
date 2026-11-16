@@ -628,7 +628,7 @@ exception class (that is `code`). Every value but `memory` is one a sibling repo
   they also drop an unknown field inside the record's `awaiting` and `last_resolution`, which
   `model_validate` refuses.
 * **Every timestamp on a run, interrupt, event, feedback or schedule is timezone-aware**
-  (`AwareDatetime`), and `ids.now()` is UTC.
+  (`AwareDatetime`), as is an `AgentExecutionContext`'s `deadline`, and `ids.now()` is UTC.
 * **Every field is described.** Each model field carries a one-line `Field(description=...)`
   with its unit, format and allowed values, so the JSON Schema (and agent-runs' OpenAPI
   document) documents every property. `tests/test_field_docs.py` keeps it that way.

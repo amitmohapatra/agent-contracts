@@ -183,6 +183,28 @@ def test_with_deadline_only_ever_tightens() -> None:
     assert _ctx(deadline=soon).with_deadline(None).deadline == soon
 
 
+def test_a_deadline_is_timezone_aware_wherever_it_is_given() -> None:
+    """A naive deadline cannot be compared with now: ``remaining_seconds`` would raise in the
+    middle of a run, so it is refused where it is given."""
+    naive = datetime(2030, 1, 1, 12, 0)
+    aware = naive.replace(tzinfo=UTC)
+    with pytest.raises(ValidationError, match="timezone"):
+        _ctx(deadline=naive)
+    with pytest.raises(ValidationError, match="timezone"):
+        AgentExecutionContext.model_validate(
+            {**_ctx().model_dump(mode="json"), "deadline": "2030-01-01T12:00:00"}
+        )
+    for parent in (_ctx(), _ctx(deadline=aware)):
+        with pytest.raises(ValueError, match="timezone"):
+            parent.with_deadline(naive)
+        with pytest.raises(ValueError, match="timezone"):
+            parent.for_agent("w", deadline=naive)
+    # an aware deadline in any zone reads back as the same instant
+    kept = _ctx(deadline=aware)
+    assert AgentExecutionContext.model_validate_json(kept.model_dump_json()).deadline == aware
+    assert kept.remaining_seconds is not None and kept.remaining_seconds > 0
+
+
 # --------------------------------------------------------------------------- derived values
 
 

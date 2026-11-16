@@ -6,6 +6,18 @@ What changed in each version of `trellis-contracts`. Why each change was made is
 
 ## Unreleased
 
+The next release is 0.8.0, a minor ([the version rules](docs/versioning.md#the-version-rules)):
+a naive context deadline is refused, and copies are validated. The version in
+`pyproject.toml` stays 0.7.1 until agent-harness, agent-runs and agent-memory-service, which
+all require `<0.8`, admit 0.8.
+
+* `AgentExecutionContext.deadline` is timezone-aware (`AwareDatetime`), as `RunStart.deadline`
+  already was. A naive `datetime` was accepted, and `remaining_seconds` then raised
+  `TypeError` in the middle of the run. It is now refused where it is given: a
+  `ValidationError` from the constructor, `create` and `model_validate`, a `ValueError` from
+  `with_deadline` and `for_agent`. A caller that passed a naive deadline attaches its zone
+  (`deadline.replace(tzinfo=UTC)`).
+
 * An `error` is refused where its description already said there is none:
   * `RunEvent.error` only on `RUN_ERROR`, or on `RUN_FINISHED` whose outcome is `error`,
     `timeout` or `rejected` (the endings a `RunRecord` carries an error for). An error on any
