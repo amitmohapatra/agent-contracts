@@ -525,6 +525,9 @@ def test_run_events_carry_the_run_identity_and_the_agui_spelling(
         started.data = {}  # type: ignore[misc]
 
 
+_BOOM = AgentError(code="X", message="boom", category=ErrorCategory.MODEL)
+
+
 @pytest.mark.parametrize(
     ("build", "message"),
     [
@@ -555,6 +558,23 @@ def test_run_events_carry_the_run_identity_and_the_agui_spelling(
             lambda ctx: RunEvent.of(ctx, RunEventType.RUN_STARTED, 0, attempt=0),
             "greater than or equal to 1",
         ),
+        (
+            lambda ctx: RunEvent.of(ctx, RunEventType.STEP_FINISHED, 0, error=_BOOM),
+            "STEP_FINISHED carries no error",
+        ),
+        (
+            lambda ctx: RunEvent.of(
+                ctx, RunEventType.TOOL_CALL_RESULT, 0, tool_call_id="tc_1", error=_BOOM
+            ),
+            "TOOL_CALL_RESULT carries no error",
+        ),
+        *(
+            (
+                lambda ctx, outcome=outcome: RunEvent.finished(ctx, outcome, 0, error=_BOOM),
+                f"a run finished {outcome.value} carries no error",
+            )
+            for outcome in (RunOutcome.SUCCESS, RunOutcome.PARTIAL, RunOutcome.CANCELLED)
+        ),
     ],
 )
 def test_an_event_whose_shape_disagrees_with_its_type_is_refused(
@@ -578,6 +598,12 @@ def test_a_finished_event_names_its_outcome_and_an_interrupt_carries_the_questio
     error = AgentError(code="X", message="boom", category=ErrorCategory.MODEL)
     failed = RunEvent.finished(ctx, RunOutcome.ERROR, 2, error=error)
     assert failed.error is error and failed.model_dump(mode="json")["outcome"] == "error"
+    # an error is on RUN_ERROR and on the endings a failed record carries one for
+    assert RunEvent.of(ctx, RunEventType.RUN_ERROR, 3, error=error).error is error
+    for outcome in (RunOutcome.TIMEOUT, RunOutcome.REJECTED):
+        assert RunEvent.finished(ctx, outcome, 4, error=error).error is error
+    for outcome in (RunOutcome.ERROR, RunOutcome.TIMEOUT, RunOutcome.REJECTED):
+        assert RunEvent.finished(ctx, outcome, 5).error is None  # may, not must
 
 
 @pytest.mark.parametrize(

@@ -6,6 +6,21 @@ What changed in each version of `trellis-contracts`. Why each change was made is
 
 ## Unreleased
 
+* An `error` is refused where its description already said there is none:
+  * `RunEvent.error` only on `RUN_ERROR`, or on `RUN_FINISHED` whose outcome is `error`,
+    `timeout` or `rejected` (the endings a `RunRecord` carries an error for). An error on any
+    other event, or on a run finished `success`, `partial`, `cancelled` or `interrupt`, is a
+    `ValidationError`. A tool's failure in a `TOOL_CALL_RESULT` event's `data` is untouched.
+  * `AgentResponse.error` only with a status that is not ok: `SUCCESS` or `PARTIAL` with an
+    error is a `ValidationError`.
+  * `RunRecord.error` is unchanged: refused on a status that did not fail, and still optional
+    on `ERROR`, `TIMEOUT` and `REJECTED` (a stored record without one keeps reading). Its
+    description now says so.
+
+  The harness emits an error only on those events. A run store that validates stored events
+  (agent-runs reads them with `RunEvent.model_validate`) refuses an event another producer
+  appended with an error elsewhere.
+
 * `Schedule.last_error` is an `AgentError | None`, as `RunRecord.error` is; it was a
   `dict[str, Any]` described as a JSON `AgentError`. The JSON is the same, and a stored
   `AgentError` dict (what agent-runs writes) reads as before. A reader gets an `AgentError`,

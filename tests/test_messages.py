@@ -124,9 +124,21 @@ def test_ok_and_failed_build_the_two_common_responses() -> None:
 def test_succeeded_needs_an_ok_status_and_no_error() -> None:
     error = AgentError(code="X")
     assert AgentResponse(status=AgentStatus.PARTIAL).succeeded
-    assert not AgentResponse(status=AgentStatus.SUCCESS, error=error).succeeded
     assert not AgentResponse(status=AgentStatus.REJECTED).succeeded
     assert not AgentResponse(status=AgentStatus.PAUSED).succeeded
+    assert not AgentResponse(status=AgentStatus.ERROR, error=error).succeeded
+
+
+@pytest.mark.parametrize("status", [s for s in AgentStatus if s.ok])
+def test_an_ok_response_carries_no_error(status: AgentStatus) -> None:
+    error = AgentError(code="X")
+    with pytest.raises(ValidationError, match=f"a {status.value} response carries no error"):
+        AgentResponse(status=status, error=error)
+    with pytest.raises(ValidationError, match="carries no error"):
+        AgentResponse.model_validate({"status": status.value, "error": {"code": "X"}})
+    for failed in (s for s in AgentStatus if not s.ok):
+        assert AgentResponse(status=failed, error=error).error is error
+        assert AgentResponse(status=failed).error is None
 
 
 class _Narrow(AgentResponse):
@@ -162,7 +174,7 @@ def test_with_fields_and_add_warning_leave_the_original_alone() -> None:
 
 def test_a_response_round_trips_through_json_with_everything_it_carries() -> None:
     response = AgentResponse(
-        status=AgentStatus.PARTIAL,
+        status=AgentStatus.ERROR,
         data={"rows": 3},
         claims=[Claim(claim_id="c1", text="t", evidence_ids=["e1"], confidence=0.5)],
         evidence=[

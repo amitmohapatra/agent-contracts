@@ -607,7 +607,8 @@ class RunRecord(RunStart):
     )
     error: AgentError | None = Field(
         default=None,
-        description="Why the run failed; only on ERROR, TIMEOUT and REJECTED, None otherwise.",
+        description="Why the run failed. Only an ERROR, TIMEOUT or REJECTED run may carry "
+        "one, and a record of one without it is valid; refused on any other status.",
     )
     awaiting: Interrupt | None = Field(
         default=None,
@@ -767,6 +768,8 @@ _OUTCOMES: dict[RunStatus, RunOutcome] = {
     RunStatus.CANCELLED: RunOutcome.CANCELLED,
     RunStatus.TIMEOUT: RunOutcome.TIMEOUT,
 }
+#: outcomes that may carry an error: those of the endings a failed record carries one for
+_FAILED_OUTCOMES = frozenset(_OUTCOMES[status] for status in _FAILED)
 
 _TEXT_EVENTS = frozenset(
     {
@@ -838,7 +841,8 @@ class RunEvent(BaseModel):
     )
     error: AgentError | None = Field(
         default=None,
-        description="The failure a RUN_ERROR or a failed RUN_FINISHED reports; None otherwise.",
+        description="The failure a RUN_ERROR, or a RUN_FINISHED whose outcome is error, "
+        "timeout or rejected, reports; refused on any other event.",
     )
     data: dict[str, Any] = Field(
         default_factory=dict,
@@ -855,6 +859,10 @@ class RunEvent(BaseModel):
             raise ValueError(f"{self.type.value} carries no outcome")
         if self.outcome == RunOutcome.INTERRUPT and "interrupt" not in self.data:
             raise ValueError("a run finished with an interrupt carries the interrupt")
+        failure = self.type == RunEventType.RUN_ERROR or self.outcome in _FAILED_OUTCOMES
+        if self.error is not None and not failure:
+            what = f"a run finished {self.outcome.value}" if self.outcome else self.type.value
+            raise ValueError(f"{what} carries no error")
         if self.type in _TEXT_EVENTS and not self.message_id:
             raise ValueError(f"{self.type.value} names its message")
         if self.type in _TOOL_EVENTS and not self.tool_call_id:

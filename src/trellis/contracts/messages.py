@@ -9,7 +9,7 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Any, Self
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from trellis.contracts.artifacts import (
     AgentWarning,
@@ -135,8 +135,15 @@ class AgentResponse(BaseModel):
     )
 
     error: AgentError | None = Field(
-        default=None, description="The failure, for a status that is not ok; None otherwise."
+        default=None,
+        description="The failure, for a status that is not ok; refused on SUCCESS and PARTIAL.",
     )
+
+    @model_validator(mode="after")
+    def _an_ok_response_carries_no_error(self) -> Self:
+        if self.error is not None and self.status.ok:
+            raise ValueError(f"a {self.status.value} response carries no error")
+        return self
 
     @classmethod
     def ok(cls, data: Any = None, **fields: Any) -> Self:
