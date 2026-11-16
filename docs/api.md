@@ -103,7 +103,7 @@ and LangGraph's suspend signals by class name, and `RETRYABLE_CATEGORIES`.
 | `InterruptRemember` | `InterruptResolution.remember`: `once`, `run` or `always` |
 | `InterruptDecision` | `ANSWER`, `APPROVE`, `REJECT`, `EDIT`, `CANCEL` |
 | `ScheduleSpec` | A standing intent: which agent, what input, which cadence and timezone, on whose behalf; `timeout_seconds`, `agent_version`, `priority` and `concurrency_key` are copied into every fired run, and `metadata` into its metadata under the fire's own keys |
-| `Schedule` | A schedule as agent-runs keeps it: the spec plus its id, author and the history of its fires. `read(data)` reads one back, as `RunRecord.read` does |
+| `Schedule` | A schedule as agent-runs keeps it: the spec plus its id, author and the history of its fires. `read(data)` reads one back, as `RunRecord.read` does. `run_start(fire_time=...)` is the `RunStart` of the run a fire queues: the fields a spec shares with a start, the schedule's `metadata` under the fire's keys, and the idempotency key `<schedule_id>@<fire time in UTC>` |
 
 ### `feedback` and `evaluation`
 

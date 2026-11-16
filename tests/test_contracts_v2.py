@@ -5,7 +5,7 @@ from __future__ import annotations
 import importlib.metadata as md
 import inspect
 from collections.abc import Sequence
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 from typing import Any, get_args
 
 import pytest
@@ -1419,3 +1419,58 @@ def test_a_schedule_queue_order_fields_match_run_start() -> None:
         assert on_spec.default == on_start.default, name
         assert on_spec.description == on_start.description, name
         assert on_spec.metadata == on_start.metadata, name
+
+
+def test_a_schedule_fires_the_same_run_start_wherever_it_fires() -> None:
+    """``Schedule.run_start`` is the one mapping from a schedule to the run a fire queues:
+    every field a spec shares with a start is copied (found by name, so a field added to both
+    is copied without a change here), the fire's own keys win in ``metadata``, and one instant
+    is one idempotency key."""
+    spec = ScheduleSpec(
+        tenant_id="acme",
+        agent_id="digest",
+        name="Morning digest",
+        cadence="daily",
+        on_behalf_of="user:u1",
+        input={"since": "yesterday"},
+        workspace_id="fin",
+        timeout_seconds=600,
+        agent_version="v7",
+        priority=10,
+        concurrency_key="digest:acme",
+        metadata={"team": "finance", "schedule_id": "spoofed", "thread_id": "thr_9"},
+    )
+    schedule = Schedule.from_spec(spec, schedule_id="sch_1", created_by="key:ops")
+    at = datetime(2026, 11, 16, 8, 0, tzinfo=UTC)
+    start = schedule.run_start(fire_time=at)
+    shared = (ScheduleSpec.model_fields.keys() & RunStart.model_fields.keys()) - {"metadata"}
+    assert shared >= {"tenant_id", "agent_id", "on_behalf_of", "input", "priority"}
+    for name in shared:
+        assert (
+            getattr(start, name)
+            == getattr(schedule, name)
+            != RunStart.model_fields[name].get_default(call_default_factory=True)
+        ), name
+    assert start.metadata == {
+        "team": "finance",
+        "thread_id": "thr_9",
+        "schedule_id": "sch_1",
+        "schedule_name": "Morning digest",
+        "fire_time": "2026-11-16T08:00:00+00:00",
+        "created_by": "key:ops",
+    }
+    assert start.idempotency_key == "sch_1@2026-11-16T08:00:00+00:00"
+    # nobody is present at a fire: the run acts for on_behalf_of and serves no user of its own
+    assert start.user_id is None and start.parent_run_id is None and start.deadline is None
+    assert start.thread_id is None and start.run_id.startswith("run_")
+    assert start.run_id != schedule.run_start(fire_time=at).run_id
+    placed = schedule.run_start(fire_time=at, thread_id="thr_9", run_id="run_fixed")
+    assert (placed.thread_id, placed.run_id) == ("thr_9", "run_fixed")
+    # one instant spelled in another zone is the same fire
+    berlin = at.astimezone(timezone(timedelta(hours=1)))
+    again = schedule.run_start(fire_time=berlin, run_id=start.run_id)
+    assert again == start
+    later = schedule.run_start(fire_time=at + timedelta(days=1))
+    assert later.idempotency_key != start.idempotency_key
+    with pytest.raises(ValueError, match="timezone"):
+        schedule.run_start(fire_time=datetime(2026, 11, 16, 8, 0))

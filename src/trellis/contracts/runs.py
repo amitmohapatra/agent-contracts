@@ -13,6 +13,7 @@ UI, a webhook or another tenant's agent sees it.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any, Literal, Self
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -956,7 +957,8 @@ class ScheduleSpec(BaseModel):
     nobody present acts as the person who set the schedule, never wider. ``timeout_seconds``,
     ``agent_version``, ``priority`` and ``concurrency_key`` are copied into the
     :class:`RunStart` of every fire, and ``metadata`` into its ``metadata`` under the fire's
-    own keys, so a scheduled run carries everything a started one can."""
+    own keys, so a scheduled run carries everything a started one can
+    (:meth:`Schedule.run_start` is that copy)."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -1045,6 +1047,10 @@ class ScheduleSpec(BaseModel):
         return value
 
 
+#: what a schedule and a run's start both carry: a fire copies each as it is
+_FIRED = (ScheduleSpec.model_fields.keys() & RunStart.model_fields.keys()) - {"metadata"}
+
+
 class Schedule(ScheduleSpec):
     """A schedule as agent-runs keeps it. Read back from a store, so unknown columns are
     ignored rather than refused.
@@ -1114,3 +1120,32 @@ class Schedule(ScheduleSpec):
     def from_spec(cls, spec: ScheduleSpec, **fields: Any) -> Self:
         """The record of a spec; ``fields`` (an id, the next fire time) win over the spec."""
         return cls.model_validate({**spec.model_dump(), **fields})
+
+    def run_start(
+        self, *, fire_time: datetime, thread_id: str | None = None, run_id: str | None = None
+    ) -> RunStart:
+        """The start of the run a fire for ``fire_time`` queues, the same wherever the
+        schedule fires. Every field a spec shares with a :class:`RunStart` is copied.
+        ``metadata`` is the schedule's under the fire's own keys (``schedule_id``,
+        ``schedule_name``, ``fire_time``, ``created_by``), which win. ``idempotency_key`` is
+        ``<schedule_id>@<fire_time in UTC, ISO 8601>``: one schedule, one instant, one run,
+        however the instant is spelled. ``user_id`` stays ``None``: nobody is present at a
+        fire, and the run acts for ``on_behalf_of``. ``thread_id`` is the conversation the
+        store puts the run in, and ``run_id`` is minted unless given. ``fire_time`` is
+        timezone-aware."""
+        if fire_time.utcoffset() is None:
+            raise ValueError("a fire time is timezone-aware")
+        fired_at = fire_time.astimezone(UTC).isoformat()
+        return RunStart(
+            **{name: getattr(self, name) for name in _FIRED},
+            **({} if run_id is None else {"run_id": run_id}),
+            thread_id=thread_id,
+            idempotency_key=f"{self.schedule_id}@{fired_at}",
+            metadata={
+                **self.metadata,
+                "schedule_id": self.schedule_id,
+                "schedule_name": self.name,
+                "fire_time": fired_at,
+                "created_by": self.created_by,
+            },
+        )

@@ -6,6 +6,15 @@ What changed in each version of `trellis-contracts`. Why each change was made is
 
 ## Unreleased
 
+* `Schedule.run_start(*, fire_time, thread_id=None, run_id=None)`: the `RunStart` of the run
+  a fire queues, so every store that fires a schedule queues the same run. It copies each
+  field a `ScheduleSpec` shares with a `RunStart`; `metadata` is the schedule's under
+  `schedule_id`, `schedule_name`, `fire_time` (UTC) and `created_by`; `idempotency_key` is
+  `<schedule_id>@<fire time in UTC, ISO 8601>`, the key agent-runs already derives; `user_id`
+  is `None` (the run acts for `on_behalf_of`). Additive. The two hand-written copies differ
+  today: agent-runs sets no `user_id`, and the harness's local store sets `user_id` to
+  `on_behalf_of`, no idempotency key and only `schedule_id` in `metadata`.
+
 * `InterruptResolution.problem_with(interrupt)`: why the resolution cannot answer the
   interrupt, or `None`. It names an answer to another interrupt or run, and an approval
   remembered beyond its call (`run` or `always`) where the interrupt has no tool call. The
