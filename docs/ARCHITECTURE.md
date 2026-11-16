@@ -617,7 +617,9 @@ exception class (that is `code`). Every value but `memory` is one a sibling repo
   `ScheduleSpec` and `AgentExecutionContext`.
 * **Records read back ignore unknown fields**, so a newer peer does not break an older reader:
   `RunRecord` and `Schedule` (from a store) and `AgentCard` with its parts (from another
-  agent).
+  agent). Read a run with `RunRecord.read(data)` and a schedule with `Schedule.read(data)`:
+  they also drop an unknown field inside the record's `awaiting` and `last_resolution`, which
+  `model_validate` refuses.
 * **Every timestamp on a run, interrupt, event, feedback or schedule is timezone-aware**
   (`AwareDatetime`), and `ids.now()` is UTC.
 * **Every field is described.** Each model field carries a one-line `Field(description=...)`

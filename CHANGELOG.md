@@ -6,6 +6,15 @@ What changed in each version of `trellis-contracts`. Why each change was made is
 
 ## Unreleased
 
+* `RunRecord.read(data)` and `Schedule.read(data)`: how a store or a client reads a record
+  back. `RunRecord.model_validate` ignores an unknown field only at the top level; the
+  `Interrupt`, `Option` and `InterruptResolution` inside a record refused one, so a reader on
+  an older patch could not read a record whose `awaiting` carried a field a newer patch added.
+  `read` drops unknown fields at every depth and validates everything else as before. A
+  record being written still refuses an unknown field, and `model_validate` is unchanged.
+  Additive. An unknown value of a closed vocabulary is still refused, so a new member on a
+  record that is read back is a minor from 0.8.0 ([the version rules](docs/versioning.md#the-version-rules)).
+
 * `AgentError.of` cuts a `HarnessError`'s message to `MESSAGE_MAX_CHARS` (2,000), as it
   already cut any other exception's and as the field's description says. A caller that
   relied on a longer message reads its first 2,000 characters.

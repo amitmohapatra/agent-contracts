@@ -17,7 +17,15 @@ from enum import StrEnum
 from typing import Any, Literal, Self
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    AwareDatetime,
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 
 from trellis.contracts.artifacts import ArtifactRef
 from trellis.contracts.context import AgentExecutionContext
@@ -26,6 +34,25 @@ from trellis.contracts.feedback import Feedback, FeedbackSource, FeedbackTargetK
 from trellis.contracts.ids import new_id, now, stable_id
 from trellis.contracts.messages import AgentRequest, AgentStatus
 from trellis.contracts.tool import ToolCall
+
+#: the validation context of a record read back from a store (``RunRecord.read``)
+_READING = {"read": True}
+
+
+class _Written(BaseModel):
+    """A record that is written closed and read back open: an unknown field is refused,
+    except inside a record being read back (:meth:`RunRecord.read`), where it is dropped. A
+    reader on an older patch then still reads what a newer one wrote."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _a_reader_drops_what_it_does_not_know(cls, data: Any, info: ValidationInfo) -> Any:
+        if isinstance(data, dict) and info.context and info.context.get("read"):
+            return {name: value for name, value in data.items() if name in cls.model_fields}
+        return data
+
 
 # --------------------------------------------------------------------------- run records
 
@@ -222,13 +249,11 @@ InterruptUI = Literal["approve", "form", "table", "diff", "choice"]
 InterruptRemember = Literal["once", "run", "always"]
 
 
-class Option(BaseModel):
+class Option(_Written):
     """One choice an interrupt offers. ``value`` is what an answer that picks it carries;
     ``label`` and ``description`` are what a person sees; ``recommended`` marks the one the
     asker recommends, its ``description`` saying why. A plain string among
     ``Interrupt.options`` is an option whose value is that string, shown as it is."""
-
-    model_config = ConfigDict(frozen=True, extra="forbid")
 
     value: str = Field(
         description="What an answer that picks this option carries; not blank.",
@@ -256,7 +281,7 @@ class Option(BaseModel):
         return value
 
 
-class Interrupt(BaseModel):
+class Interrupt(_Written):
     """The framework-neutral record of a paused run: what is asked, what shape an answer
     takes, what the UI needs, who must answer by when, and the tool call under approval when
     there is one. Surfaces translate it (AG-UI ``RunFinished{outcome: interrupt}``, A2A
@@ -270,8 +295,6 @@ class Interrupt(BaseModel):
     inbox is filtered by; past ``deadline`` the run goes to ``escalate_to``, or times out when
     nobody is named. Data too large to travel with the question (a table, a diff) goes by
     reference in ``payload_ref``."""
-
-    model_config = ConfigDict(frozen=True, extra="forbid")
 
     interrupt_id: str = Field(
         default_factory=lambda: new_id("int_"),
@@ -445,13 +468,11 @@ _DECISION_VERDICT: dict[InterruptDecision, FeedbackVerdict] = {
 }
 
 
-class InterruptResolution(BaseModel):
+class InterruptResolution(_Written):
     """How an interrupt was answered. The paused run continues (``RunsClient.resume`` in
     ``trellis.runs`` moves it back to ``RUNNING`` on the same run id, the next attempt); the
     resolution names the interrupt and the run so agent-runs can refuse an answer to the wrong
     question."""
-
-    model_config = ConfigDict(frozen=True, extra="forbid")
 
     interrupt_id: str = Field(description="Id of the interrupt being answered.")
     run_id: str = Field(description="Id of the paused run; must be the interrupt's run_id.")
@@ -555,7 +576,8 @@ class RunRecord(RunStart):
     outputs, a framework's own resume state) written when the run pauses, returned on read and
     claim so another worker resumes without repeating side effects, and cleared when the run
     finishes; the service bounds its size. Read back from a store, so unknown columns are
-    ignored rather than refused."""
+    ignored rather than refused; :meth:`read` ignores them in ``awaiting`` and
+    ``last_resolution`` too."""
 
     model_config = ConfigDict(frozen=True, extra="ignore")
 
@@ -631,6 +653,14 @@ class RunRecord(RunStart):
     @property
     def final(self) -> bool:
         return self.status.final
+
+    @classmethod
+    def read(cls, data: Any) -> Self:
+        """The record ``data`` (what a store or a service returned) holds. A field this
+        version does not know is dropped at every depth, so a record written by a newer patch
+        still reads; everything else is validated as ever. A value this version does not
+        know (a new status, a new ``remember``) is still refused."""
+        return cls.model_validate(data, context=_READING)
 
     @classmethod
     def from_start(cls, start: RunStart, *, status: RunStatus = RunStatus.RUNNING) -> Self:
@@ -1040,6 +1070,12 @@ class Schedule(ScheduleSpec):
         default_factory=now,
         description="When the record last changed (ISO 8601, timezone-aware; UTC unless given).",
     )
+
+    @classmethod
+    def read(cls, data: Any) -> Self:
+        """The schedule ``data`` (what a store or a service returned) holds, read as
+        :meth:`RunRecord.read` reads a run: a field this version does not know is dropped."""
+        return cls.model_validate(data, context=_READING)
 
     @classmethod
     def from_spec(cls, spec: ScheduleSpec, **fields: Any) -> Self:

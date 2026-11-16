@@ -81,6 +81,10 @@ create a `trellis/__init__.py` in your own code, because it would hide the other
 peer ignore unknown fields, so a newer service does not break an older reader. Records you
 write refuse them, so your typo fails at your end.
 
+**A `RunRecord` from a newer service fails with `Extra inputs are not permitted` under
+`awaiting` or `last_resolution`.** `RunRecord.model_validate` ignores an unknown field only at
+the top level. Read it with `RunRecord.read(data)`, which drops unknown fields at every depth.
+
 **Where is the run store port?** There is none ([ADR 0004](adr/0004-no-run-store-port.md)).
 The runs client is `trellis.runs.RunsClient`.
 

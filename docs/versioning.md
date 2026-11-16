@@ -39,6 +39,16 @@ version whose fields it sends, and a consumer reading records back (`RunRecord`,
 `AgentCard`) ignores fields it does not know. That is why agent-runs, which stores the
 schedule fields 0.6.1 added, pins `>=0.6.1`.
 
+Read a stored or returned run with `RunRecord.read(data)` and a schedule with
+`Schedule.read(data)`. `RunRecord.model_validate` ignores an unknown field only at the top
+level: the `Interrupt`, its `Option`s and the `InterruptResolution` inside a record refuse
+one, so a record whose `awaiting` carries a field added in a later patch is refused. `read`
+drops unknown fields at every depth.
+
+`read` does not accept an unknown value. A new member of a closed vocabulary on a record that
+is read back (a `RunStatus`, an `InterruptReason`, an `InterruptRemember` value) is refused by
+every older reader, so from 0.8.0 it is a minor, not a patch.
+
 ## Where changes are recorded
 
 * [CHANGELOG.md](../CHANGELOG.md): what each version changed.

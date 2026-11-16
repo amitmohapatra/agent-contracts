@@ -193,6 +193,50 @@ def test_a_records_place_is_the_stores_and_optional(ctx: AgentExecutionContext) 
         RunRecord.model_validate({**older, "placed_at": "2026-11-14T12:00:00"})
 
 
+def test_a_record_read_back_drops_what_a_newer_writer_added(ctx: AgentExecutionContext) -> None:
+    """A store or a client reads with ``RunRecord.read`` / ``Schedule.read``: a field a newer
+    patch added is dropped at every depth, where ``model_validate`` drops it only at the top.
+    A record being written still refuses it."""
+    option = Option(value="eu", label="Europe")
+    interrupt = _interrupt(ctx, reason=InterruptReason.CHOICE, options=[option, "us"])
+    answered = InterruptResolution(
+        interrupt_id="int_before", run_id=ctx.agent_run_id, decision=InterruptDecision.ANSWER
+    )
+    paused = RunRecord(
+        run_id=ctx.agent_run_id,
+        tenant_id="acme",
+        agent_id="a",
+        status=RunStatus.PAUSED,
+        awaiting=interrupt,
+        last_resolution=answered,
+    )
+    stored = paused.model_dump(mode="json")
+    newer = {
+        **stored,
+        "added_later": 1,
+        "awaiting": {
+            **stored["awaiting"],
+            "added_later": 1,
+            "options": [{**option.model_dump(mode="json"), "added_later": 1}, "us"],
+        },
+        "last_resolution": {**stored["last_resolution"], "added_later": 1},
+    }
+    with pytest.raises(ValidationError, match="added_later"):
+        RunRecord.model_validate(newer)
+    assert RunRecord.read(newer) == paused
+    assert RunRecord.read(stored) == RunRecord.model_validate(stored) == paused
+    with pytest.raises(ValidationError, match="added_later"):
+        Interrupt.model_validate(newer["awaiting"])
+    # reading forgives an unknown field, nothing else
+    with pytest.raises(ValidationError, match="PAUSED run waits"):
+        RunRecord.read({**newer, "status": "RUNNING"})
+    with pytest.raises(ValidationError, match="decision"):
+        RunRecord.read({**newer, "last_resolution": {**stored["last_resolution"], "decision": "X"}})
+    spec = ScheduleSpec(tenant_id="t", agent_id="a", name="n", cadence="daily", on_behalf_of="u1")
+    kept = Schedule.from_spec(spec)
+    assert Schedule.read({**kept.model_dump(mode="json"), "added_later": 1}) == kept
+
+
 # --------------------------------------------------------------------------- interrupts
 
 
