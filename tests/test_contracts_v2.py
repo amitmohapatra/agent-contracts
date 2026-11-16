@@ -694,7 +694,10 @@ def test_a_run_outcome_the_platform_derives_is_system_feedback() -> None:
         Feedback.model_validate({**outcome.model_dump(mode="json"), "source": "nobody"})
 
 
-def test_a_judge_verdict_becomes_judge_feedback_on_the_answer() -> None:
+def test_a_judge_verdict_becomes_judge_feedback_on_the_run() -> None:
+    """The target is the run, the kind the Memory Service keeps a judge's word under (it has
+    no ``answer`` kind and refuses one); the result artifact, when the event names one, is in
+    ``metadata``."""
     event = AgentEvalEvent(
         agent_id="a", agent_run_id="run_1", tenant_id="acme", trace_id=TRACE, result_ref="art_9"
     )
@@ -707,17 +710,18 @@ def test_a_judge_verdict_becomes_judge_feedback_on_the_answer() -> None:
     )
     feedback = good.as_feedback(event)
     assert feedback.verdict is FeedbackVerdict.CONFIRM and feedback.source is FeedbackSource.JUDGE
-    assert feedback.target_kind is FeedbackTargetKind.ANSWER and feedback.target_id == "art_9"
+    assert feedback.target_kind is FeedbackTargetKind.RUN and feedback.target_id == "run_1"
     assert feedback.reviewer == "judge:grounded" and feedback.score == 0.8
-    assert feedback.metadata["method"] == "grounded" and feedback.metadata["target"] == "result"
+    assert feedback.metadata == {"method": "grounded", "label": None, "result_ref": "art_9"}
     assert feedback.trace_id == TRACE
     bad = JudgeVerdict(score=0.2, method=JudgeMethod.LLM, model="judge-model")
     assert (
         bad.as_feedback(event).verdict is FeedbackVerdict.REJECT
         and bad.reviewer == "judge:judge-model"
     )
-    on_run = bad.as_feedback(event.model_copy(update={"result_ref": None}))
-    assert on_run.target_id == "run_1" and on_run.metadata["target"] == "run"
+    bare = bad.as_feedback(event.model_copy(update={"result_ref": None}))
+    assert bare.target_kind is FeedbackTargetKind.RUN and bare.target_id == "run_1"
+    assert "result_ref" not in bare.metadata
     edge = JudgeVerdict(score=0.5, method=JudgeMethod.LLM)
     assert edge.as_feedback(event).verdict is FeedbackVerdict.CONFIRM
     assert edge.as_feedback(event, threshold=0.6).verdict is FeedbackVerdict.REJECT

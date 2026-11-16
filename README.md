@@ -233,7 +233,7 @@ does these for you; the rows are what you write when you plug the blocks in your
 | get a tool call approved before it runs | `Interrupt(reason=InterruptReason.APPROVAL, tool_call=ToolCall(...))` |
 | record how a person answered | `InterruptResolution`, sent with `RunsClient.resume(resolution)`; for an approve, reject or edit of a tool call, `resolution.to_feedback(interrupt, ctx)` gives the matching `Feedback`, which the memory SDK's `feedback(record)` sends as it is |
 | record a judgement on a run, answer, memory, tool call, brief or procedure | `Feedback.for_context(ctx, target_kind=..., target_id=..., verdict=...)` |
-| score a finished run automatically | `trellis.harness.evals` (`judge`, `evaluate`) with its own evaluators; for a judge of your own, the `Judge` port returns a `JudgeVerdict`, and `verdict.as_feedback(event)` turns it into judge `Feedback` on the `AgentEvalEvent`'s answer |
+| score a finished run automatically | `trellis.harness.evals` (`judge`, `evaluate`) with its own evaluators; for a judge of your own, the `Judge` port returns a `JudgeVerdict`, and `verdict.as_feedback(event)` turns it into judge `Feedback` on the `AgentEvalEvent`'s run |
 | keep a run beyond the process, or queue it for a worker | `RunStart.from_request(request)`, then `RunsClient.start(start)` or `RunsClient.start(start, queue=True)` from `trellis.runs` (the agent-runs SDK), which return a `RunRecord` |
 | check whether a status change is allowed | `RunStatus.can_become(target)` |
 | stream progress to a UI | wrapped, `agent.stream()` yields the `RunEvent`s; in your own code, the `RunEvent` constructors (`started`, `text`, `tool`, `interrupt`, `custom`, `finished`), sent with `EventSink.publish` |

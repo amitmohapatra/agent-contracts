@@ -6,6 +6,16 @@ What changed in each version of `trellis-contracts`. Why each change was made is
 
 ## Unreleased
 
+* `JudgeVerdict.as_feedback` targets the run: `target_kind` is `run` and `target_id` the
+  event's `agent_run_id`. It was `answer`, with the result artifact's id as `target_id` when
+  the event named one, and the Memory Service, the only store of feedback, has no `answer`
+  kind and answered 422. The result artifact is now `metadata.result_ref`; `metadata.target`
+  is gone. `FeedbackTargetKind` is unchanged: `ANSWER` and `BRIEF` stay.
+
+* `is_pause_signal` is exported from `trellis.contracts`. It was importable only from
+  `trellis.contracts.errors`, where the harness imports it in six modules; that import keeps
+  working. Additive.
+
 * `AgentError.of` applies `category=` and `retryable=` to a `HarnessError` too. It returned
   the error's own classification before reading them, so
   `AgentError.of(ToolError(), retryable=True)` was not retryable. Without them a

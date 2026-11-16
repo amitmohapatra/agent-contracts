@@ -12,6 +12,7 @@ from typing import Any, get_args
 import pytest
 from pydantic import ValidationError
 
+from trellis import contracts
 from trellis.contracts import (
     AgentCancelledError,
     AgentError,
@@ -97,6 +98,12 @@ def test_the_langgraph_signals_are_still_recognised() -> None:
     for cls in (GraphBubbleUp, GraphInterrupt, ParentCommand):
         assert is_pause_signal(cls("suspended")), cls.__name__
     assert not is_pause_signal(RuntimeError("a real failure"))
+
+
+def test_the_pause_check_is_part_of_the_package() -> None:
+    """Every caller that catches an exception asks it first: imported from the root."""
+    assert "is_pause_signal" in contracts.__all__
+    assert contracts.is_pause_signal is is_pause_signal
 
 
 def test_memory_sdk_errors_are_classified_by_module_and_name():

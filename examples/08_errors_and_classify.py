@@ -14,8 +14,8 @@ from trellis.contracts import (
     PolicyDeniedError,
     ToolNotFoundError,
     classify,
+    is_pause_signal,
 )
-from trellis.contracts.errors import is_pause_signal
 
 assert classify(TimeoutError()) is ErrorCategory.TIMEOUT
 assert classify(KeyError("sku")) is ErrorCategory.VALIDATION

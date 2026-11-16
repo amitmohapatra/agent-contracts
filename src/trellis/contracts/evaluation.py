@@ -63,18 +63,18 @@ class JudgeVerdict(BaseModel):
 
     def as_feedback(self, event: AgentEvalEvent, *, threshold: float = 0.5) -> Feedback:
         """The feedback record of this verdict on the run the event describes: a score at or
-        above ``threshold`` confirms the answer, below it rejects it. The target is the
-        result artifact when the event names one, else the run; ``metadata.target`` says
-        which, so records on the two id spaces can be told apart."""
+        above ``threshold`` confirms the answer, below it rejects it. The target is the run,
+        the kind the Memory Service keeps a judge's word under; the result artifact, when the
+        event names one, is ``metadata.result_ref``."""
         verdict = FeedbackVerdict.CONFIRM if self.score >= threshold else FeedbackVerdict.REJECT
-        target = "result" if event.result_ref else "run"
+        result = {"result_ref": event.result_ref} if event.result_ref else {}
         return Feedback(
             tenant_id=event.tenant_id,
             agent_id=event.agent_id,
             agent_run_id=event.agent_run_id,
             trace_id=event.trace_id,
-            target_kind=FeedbackTargetKind.ANSWER,
-            target_id=event.result_ref or event.agent_run_id,
+            target_kind=FeedbackTargetKind.RUN,
+            target_id=event.agent_run_id,
             verdict=verdict,
             source=FeedbackSource.JUDGE,
             score=self.score,
@@ -85,6 +85,6 @@ class JudgeVerdict(BaseModel):
                 **self.metadata,
                 "method": self.method.value,
                 "label": self.label,
-                "target": target,
+                **result,
             },
         )

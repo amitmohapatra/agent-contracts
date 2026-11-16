@@ -41,6 +41,7 @@ from trellis.contracts.errors import (
     ToolError,
     ToolNotFoundError,
     classify,
+    is_pause_signal,
 )
 from trellis.contracts.evaluation import JudgeMethod, JudgeVerdict
 from trellis.contracts.events import AgentEvalEvent
@@ -170,6 +171,7 @@ __all__ = [
     "ToolSpec",
     "ToolStatus",
     "classify",
+    "is_pause_signal",
     "new_id",
     "now",
     "safe_id",

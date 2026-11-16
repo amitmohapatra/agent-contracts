@@ -81,9 +81,9 @@ Every name below is in `trellis.contracts.__all__` and importable from `trellis.
 | `ToolError` | A tool call failed (`TOOL`) |
 | `ToolNotFoundError` | A `ToolError` for a tool that does not exist (`VALIDATION`) |
 | `ResultValidationError` | An agent's result failed validation (`VALIDATION`) |
+| `is_pause_signal` | Whether an exception suspends the run (an `AgentPaused`, or one of LangGraph's suspend signals, matched by class name) and is no failure |
 
-`trellis.contracts.errors` also has `is_pause_signal(exc)`, which recognises `AgentPaused`
-and LangGraph's suspend signals by class name, and `RETRYABLE_CATEGORIES`.
+`trellis.contracts.errors` also has `RETRYABLE_CATEGORIES`.
 
 ### `runs`
 
@@ -110,10 +110,10 @@ and LangGraph's suspend signals by class name, and `RETRYABLE_CATEGORIES`.
 | Name | What it is |
 | --- | --- |
 | `Feedback` | One judgement about one target. `for_context` binds it to the identity of the request it was given in |
-| `FeedbackTargetKind` | `run`, `answer`, `memory`, `tool_call`, `brief`, `procedure` |
+| `FeedbackTargetKind` | `run`, `answer`, `memory`, `tool_call`, `brief`, `procedure`. The Memory Service keeps `run`, `memory`, `tool_call` and `procedure`, and refuses `answer` and `brief` |
 | `FeedbackVerdict` | `confirm`, `reject`, `correct`, `approve`, `edit`. `correct` and `edit` need a `correction` |
 | `FeedbackSource` | `human`, `judge`, `interrupt`, `system` (derived from a run's final status) |
-| `JudgeVerdict` | A judge's score in [0, 1] with its method, model and cost. `as_feedback` turns it into a `Feedback` |
+| `JudgeVerdict` | A judge's score in [0, 1] with its method, model and cost. `as_feedback` turns it into a `Feedback` on the run |
 | `JudgeMethod` | `grounded` (deterministic citation and claim checks) or `llm` |
 | `AgentEvalEvent` (from `events`) | What a judge scores a finished run from. It carries references, not payloads |
 
