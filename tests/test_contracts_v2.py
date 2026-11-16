@@ -856,16 +856,27 @@ def test_a_schedule_records_its_author_and_how_its_fires_went() -> None:
     with pytest.raises(ValidationError, match="created_by"):
         ScheduleSpec(**spec.model_dump(), created_by="admin")
     retry = datetime(2026, 10, 1, 8, 5, tzinfo=UTC)
+    error = AgentError(
+        code="OperationalError",
+        message="agent-runs unavailable",
+        category=ErrorCategory.DEPENDENCY,
+        retryable=True,
+        source="agent-runs",
+    )
     failing = Schedule.from_spec(
         spec,
         created_by="admin",
         last_run_id="run_1",
         consecutive_failures=2,
-        last_error={"status": 503, "message": "agent-runs unavailable"},
+        last_error=error.model_dump(mode="json"),  # as agent-runs stores it
         retry_after=retry,
     )
     assert failing.created_by == "admin" and failing.retry_after == retry
+    assert failing.last_error == error
     assert Schedule.model_validate_json(failing.model_dump_json()) == failing
+    assert failing.model_dump(mode="json")["last_error"] == error.model_dump(mode="json")
+    with pytest.raises(ValidationError, match="last_error"):
+        Schedule.from_spec(spec, last_error={"status": 503})
     with pytest.raises(ValidationError):
         Schedule.from_spec(spec, consecutive_failures=-1)
     with pytest.raises(ValidationError, match="timezone"):

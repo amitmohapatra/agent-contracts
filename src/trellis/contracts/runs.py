@@ -1094,9 +1094,9 @@ class Schedule(ScheduleSpec):
         description="Fires in a row that could not queue a run (not runs that failed); reset "
         "to 0 by a successful fire.",
     )
-    last_error: dict[str, Any] | None = Field(
+    last_error: AgentError | None = Field(
         default=None,
-        description="The last fire failure as a JSON AgentError; None after a successful fire.",
+        description="Why the last fire could not queue a run; None after a successful fire.",
     )
     retry_after: AwareDatetime | None = Field(
         default=None,

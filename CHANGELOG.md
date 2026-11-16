@@ -6,6 +6,12 @@ What changed in each version of `trellis-contracts`. Why each change was made is
 
 ## Unreleased
 
+* `Schedule.last_error` is an `AgentError | None`, as `RunRecord.error` is; it was a
+  `dict[str, Any]` described as a JSON `AgentError`. The JSON is the same, and a stored
+  `AgentError` dict (what agent-runs writes) reads as before. A reader gets an `AgentError`,
+  not a dict (`schedule.last_error.code`, not `["code"]`), and a dict that is not an
+  `AgentError` is refused.
+
 * `Schedule.run_start(*, fire_time, thread_id=None, run_id=None)`: the `RunStart` of the run
   a fire queues, so every store that fires a schedule queues the same run. It copies each
   field a `ScheduleSpec` shares with a `RunStart`; `metadata` is the schedule's under
