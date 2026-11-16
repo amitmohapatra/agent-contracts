@@ -6,34 +6,18 @@ What changed in each version of `trellis-contracts`. Why each change was made is
 
 ## Unreleased
 
-* `JudgeVerdict.as_feedback` targets the run: `target_kind` is `run` and `target_id` the
-  event's `agent_run_id`. It was `answer`, with the result artifact's id as `target_id` when
-  the event named one, and the Memory Service, the only store of feedback, has no `answer`
-  kind and answered 422. The result artifact is now `metadata.result_ref`; `metadata.target`
-  is gone. `FeedbackTargetKind` is unchanged: `ANSWER` and `BRIEF` stay.
-
-* `is_pause_signal` is exported from `trellis.contracts`. It was importable only from
-  `trellis.contracts.errors`, where the harness imports it in six modules; that import keeps
-  working. Additive.
-
-* `AgentError.of` applies `category=` and `retryable=` to a `HarnessError` too. It returned
-  the error's own classification before reading them, so
-  `AgentError.of(ToolError(), retryable=True)` was not retryable. Without them a
-  `HarnessError` keeps its own, as before.
-
-* `AgentError.of` and `HarnessError.to_error` no longer raise on a source outside
-  `ErrorSource`. They run on the failure path, and the harness passes its adapter's name as
-  the source: an adapter this version does not list raised a `ValidationError` in place of
-  the run's error. The source is now `None` and the name is kept in
-  `details.source_detail`. A blank source is no source. `AgentError(source=...)` and
-  `model_validate` still refuse an unknown source: the vocabulary of a stored error stays
-  closed ([ADR 0003](docs/adr/0003-documented-fields-and-closed-vocabularies.md), which had
-  the two normalisers refuse it too).
-
 The next release is 0.8.0, a minor ([the version rules](docs/versioning.md#the-version-rules)):
-a naive context deadline is refused, and copies are validated. The version in
-`pyproject.toml` stays 0.7.1 until agent-harness, agent-runs and agent-memory-service, which
+some entries below refuse what was accepted (a naive context deadline, a copy the type
+refuses, an error where its field says there is none). The version in `pyproject.toml` stays
+0.7.1 until agent-harness, agent-runs and agent-memory-service, which
 all require `<0.8`, admit 0.8.
+
+* `AgentExecutionContext.deadline` is timezone-aware (`AwareDatetime`), as `RunStart.deadline`
+  already was. A naive `datetime` was accepted, and `remaining_seconds` then raised
+  `TypeError` in the middle of the run. It is now refused where it is given: a
+  `ValidationError` from the constructor, `create` and `model_validate`, a `ValueError` from
+  `with_deadline` and `for_agent`. A caller that passed a naive deadline attaches its zone
+  (`deadline.replace(tzinfo=UTC)`).
 
 * `with_fields` validates its copy, on `AgentExecutionContext`, `AgentRequest` and
   `AgentResponse` (and so do `with_deadline` and `add_warning`, which use it). It was
@@ -42,13 +26,6 @@ all require `<0.8`, admit 0.8.
   as the constructor builds one, so a change the type refuses raises `ValidationError`, and a
   context given a `turn_id` in a thread gets its derived `session_id` (it stayed `None`).
   Unchanged values are passed as they are, not rebuilt.
-
-* `AgentExecutionContext.deadline` is timezone-aware (`AwareDatetime`), as `RunStart.deadline`
-  already was. A naive `datetime` was accepted, and `remaining_seconds` then raised
-  `TypeError` in the middle of the run. It is now refused where it is given: a
-  `ValidationError` from the constructor, `create` and `model_validate`, a `ValueError` from
-  `with_deadline` and `for_agent`. A caller that passed a naive deadline attaches its zone
-  (`deadline.replace(tzinfo=UTC)`).
 
 * An `error` is refused where its description already said there is none:
   * `RunEvent.error` only on `RUN_ERROR`, or on `RUN_FINISHED` whose outcome is `error`,
@@ -71,6 +48,44 @@ all require `<0.8`, admit 0.8.
   not a dict (`schedule.last_error.code`, not `["code"]`), and a dict that is not an
   `AgentError` is refused.
 
+* `JudgeVerdict.as_feedback` targets the run: `target_kind` is `run` and `target_id` the
+  event's `agent_run_id`. It was `answer`, with the result artifact's id as `target_id` when
+  the event named one, and the Memory Service, the only store of feedback, has no `answer`
+  kind and answered 422. The result artifact is now `metadata.result_ref`; `metadata.target`
+  is gone. `FeedbackTargetKind` is unchanged: `ANSWER` and `BRIEF` stay until
+  [ADR 0010](docs/adr/0010-exported-names-without-a-consumer.md) is decided.
+
+* `AgentError.of` applies `category=` and `retryable=` to a `HarnessError` too. It returned
+  the error's own classification before reading them, so
+  `AgentError.of(ToolError(), retryable=True)` was not retryable. Without them a
+  `HarnessError` keeps its own, as before.
+
+* `AgentError.of` and `HarnessError.to_error` no longer raise on a source outside
+  `ErrorSource`. They run on the failure path, and the harness passes its adapter's name as
+  the source: an adapter this version does not list raised a `ValidationError` in place of
+  the run's error. The source is now `None` and the name is kept in
+  `details.source_detail`. A blank source is no source. `AgentError(source=...)` and
+  `model_validate` still refuse an unknown source: the vocabulary of a stored error stays
+  closed ([ADR 0003](docs/adr/0003-documented-fields-and-closed-vocabularies.md), which had
+  the two normalisers refuse it too).
+
+* `RunRecord.read(data)` and `Schedule.read(data)`: how a store or a client reads a record
+  back. `RunRecord.model_validate` ignores an unknown field only at the top level; the
+  `Interrupt`, `Option` and `InterruptResolution` inside a record refused one, so a reader on
+  an older patch could not read a record whose `awaiting` carried a field a newer patch added.
+  `read` drops unknown fields at every depth and validates everything else as before. A
+  record being written still refuses an unknown field, and `model_validate` is unchanged.
+  Additive. An unknown value of a closed vocabulary is still refused, so a new member on a
+  record that is read back is a minor from 0.8.0 ([the version rules](docs/versioning.md#the-version-rules)).
+
+* `RunRecord.moved(to, *, keep_checkpoint=False, **changes)`: the record after a status
+  change, so a run store no longer spells out what a move ends. It raises `ValueError` for a
+  move `RunStatus.can_become` refuses (a status never becomes itself, so `SUCCESS` to
+  `SUCCESS` is refused) and for a change that names no field; it clears `awaiting` unless the
+  run pauses and `checkpoint` when the run ends, unless `keep_checkpoint`; it sets
+  `updated_at` to now unless given, and validates the result. Additive: agent-runs and the
+  harness's local store each still do this themselves until they call it.
+
 * `Schedule.run_start(*, fire_time, thread_id=None, run_id=None)`: the `RunStart` of the run
   a fire queues, so every store that fires a schedule queues the same run. It copies each
   field a `ScheduleSpec` shares with a `RunStart`; `metadata` is the schedule's under
@@ -87,22 +102,9 @@ all require `<0.8`, admit 0.8.
   missed `always` (0.7.1). Whether an answer fits `expects` stays there: it needs JSON Schema.
   Additive.
 
-* `RunRecord.moved(to, *, keep_checkpoint=False, **changes)`: the record after a status
-  change, so a run store no longer spells out what a move ends. It raises `ValueError` for a
-  move `RunStatus.can_become` refuses (a status never becomes itself, so `SUCCESS` to
-  `SUCCESS` is refused) and for a change that names no field; it clears `awaiting` unless the
-  run pauses and `checkpoint` when the run ends, unless `keep_checkpoint`; it sets
-  `updated_at` to now unless given, and validates the result. Additive: agent-runs and the
-  harness's local store each still do this themselves until they call it.
-
-* `RunRecord.read(data)` and `Schedule.read(data)`: how a store or a client reads a record
-  back. `RunRecord.model_validate` ignores an unknown field only at the top level; the
-  `Interrupt`, `Option` and `InterruptResolution` inside a record refused one, so a reader on
-  an older patch could not read a record whose `awaiting` carried a field a newer patch added.
-  `read` drops unknown fields at every depth and validates everything else as before. A
-  record being written still refuses an unknown field, and `model_validate` is unchanged.
-  Additive. An unknown value of a closed vocabulary is still refused, so a new member on a
-  record that is read back is a minor from 0.8.0 ([the version rules](docs/versioning.md#the-version-rules)).
+* `is_pause_signal` is exported from `trellis.contracts`. It was importable only from
+  `trellis.contracts.errors`, where the harness imports it in six modules; that import keeps
+  working. Additive.
 
 * `AgentError.of` cuts a `HarnessError`'s message to `MESSAGE_MAX_CHARS` (2,000), as it
   already cut any other exception's and as the field's description says. A caller that
@@ -126,6 +128,9 @@ all require `<0.8`, admit 0.8.
 
 Documentation:
 
+* [ADR 0010](docs/adr/0010-exported-names-without-a-consumer.md) (proposed): 46 of the 85
+  exported names are imported by no sibling's source. It lists the seven that stay and the 39
+  that leave in 0.8.0, and what the removal has to carry with it. Nothing is removed yet.
 * [docs/versioning.md](docs/versioning.md): the table gives the pins and versions on each
   sibling's `main` today (the harness and agent-runs require `>=0.7.1,<0.8`; `trellis-memory`
   is 0.6.6, `bifrost-sdk` 0.4.0). [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) said the Memory

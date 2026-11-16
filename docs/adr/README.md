@@ -18,6 +18,7 @@ part is noted in the last column, and the earlier record lists the later one as 
 | [0007](0007-schedules-carry-queue-order-and-metadata.md) | A schedule carries its runs' queue order and metadata | 0.6.1 | accepted | 0006 | — | — |
 | [0008](0008-acp-error-source.md) | `acp`, the harness's adapter for ACP agents (Kimi Code), is an error source | 0.6.2 | accepted | 0003 | — | — |
 | [0009](0009-endpoint-and-model-profile.md) | An `Endpoint` and a `ModelProfile` say where a model is and what it accepts | 0.6.3 | accepted | — | — | — |
+| [0010](0010-exported-names-without-a-consumer.md) | Exported names no sibling imports leave in 0.8.0 (nothing is removed until it is accepted) | 0.8.0 | proposed | — | — | — |
 
 What each version changed, in one place: [CHANGELOG.md](../../CHANGELOG.md).
 
