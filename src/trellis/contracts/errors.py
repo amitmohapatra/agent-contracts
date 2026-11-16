@@ -139,7 +139,10 @@ class AgentError(BaseModel):
         else whether the category is in :data:`RETRYABLE_CATEGORIES`. ``source`` must be an
         :data:`ErrorSource`, optionally qualified (``mcp.refund``)."""
         if isinstance(exc, HarnessError):
-            return exc.to_error(trace_id=trace_id, source=source or exc.source)
+            error = exc.to_error(trace_id=trace_id, source=source or exc.source)
+            if len(error.message) <= MESSAGE_MAX_CHARS:
+                return error
+            return error.model_copy(update={"message": error.message[:MESSAGE_MAX_CHARS]})
         cat = category or classify(exc)
         if retryable is None:
             retryable = _own_retryable(exc)

@@ -27,6 +27,7 @@ from trellis.contracts import (
 )
 from trellis.contracts.errors import (
     ERROR_SOURCES,
+    MESSAGE_MAX_CHARS,
     RETRYABLE_CATEGORIES,
     ErrorCategory,
     ErrorSource,
@@ -458,3 +459,9 @@ def test_an_acp_agents_failure_is_recorded_as_the_acp_adapters() -> None:
     error = AgentError.of(RuntimeError("the agent's process ended"), source="acp")
     assert error.source == "acp" and error.model_dump(mode="json")["source"] == "acp"
     assert AgentError.model_validate_json(error.model_dump_json()).source == "acp"
+
+
+@pytest.mark.parametrize("raised", [ToolError, ValueError])
+def test_of_cuts_any_exceptions_message_to_the_documented_length(raised: type[Exception]) -> None:
+    error = AgentError.of(raised("x" * (MESSAGE_MAX_CHARS + 50)))
+    assert len(error.message) == MESSAGE_MAX_CHARS
