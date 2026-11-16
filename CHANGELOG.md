@@ -6,6 +6,10 @@ What changed in each version of `trellis-contracts`. Why each change was made is
 
 ## Unreleased
 
+* `AgentError.of` cuts a `HarnessError`'s message to `MESSAGE_MAX_CHARS` (2,000), as it
+  already cut any other exception's and as the field's description says. A caller that
+  relied on a longer message reads its first 2,000 characters.
+
 * A finished `RunRecord` may carry a `checkpoint`: the one its caller asked the run store to
   keep past the run's end (agent-runs `finish` / `cancel` with `keep_checkpoint`), so an ended
   run can be rewound. Relaxed, not added: a store that clears the checkpoint at the end, as

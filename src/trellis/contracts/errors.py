@@ -176,7 +176,7 @@ class AgentPaused(Exception):
 
     Deliberately not a :class:`HarnessError`: a pause is not a failure, and inheriting from
     the error base would classify it, count it in the error rate, and hand it to
-    ``on_agent_error``.
+    ``on_error``.
 
     ``question`` is what the person is being asked, and it is required — a pause with no
     question is a run that stops with nothing to show anyone. ``expects`` describes the shape
