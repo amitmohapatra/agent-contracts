@@ -11,6 +11,14 @@ a naive context deadline is refused, and copies are validated. The version in
 `pyproject.toml` stays 0.7.1 until agent-harness, agent-runs and agent-memory-service, which
 all require `<0.8`, admit 0.8.
 
+* `with_fields` validates its copy, on `AgentExecutionContext`, `AgentRequest` and
+  `AgentResponse` (and so do `with_deadline` and `add_warning`, which use it). It was
+  `model_copy(update=...)`, which checks nothing: `ctx.with_fields(tenant_id=None, bogus=1)`
+  returned a context with no tenant and an attribute the type refuses. The copy is now built
+  as the constructor builds one, so a change the type refuses raises `ValidationError`, and a
+  context given a `turn_id` in a thread gets its derived `session_id` (it stayed `None`).
+  Unchanged values are passed as they are, not rebuilt.
+
 * `AgentExecutionContext.deadline` is timezone-aware (`AwareDatetime`), as `RunStart.deadline`
   already was. A naive `datetime` was accepted, and `remaining_seconds` then raised
   `TypeError` in the middle of the run. It is now refused where it is given: a

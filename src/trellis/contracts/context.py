@@ -200,14 +200,14 @@ class AgentExecutionContext(BaseModel):
         )
 
     def with_fields(self, **changes: Any) -> Self:
-        """A copy with ``changes`` applied. The context stays immutable; this returns a new one."""
-        if "group_ids" in changes and changes["group_ids"] is not None:
-            changes["group_ids"] = tuple(changes["group_ids"])
-        return self.model_copy(update=changes)
+        """A copy with ``changes`` applied, validated like a context built new: a change
+        the type refuses is refused, and a turn in a thread gets its session. The context
+        stays immutable; this returns a new one."""
+        return type(self).model_validate({**dict(self), **changes})
 
     def with_deadline(self, deadline: AwareDatetime | None) -> Self:
         """Tighten the deadline. A child deadline never outlives the parent's (§38)."""
-        return self.model_copy(update={"deadline": _earliest(self.deadline, deadline)})
+        return self.with_fields(deadline=_earliest(self.deadline, deadline))
 
     # ------------------------------------------------------------------ derived values
     @property

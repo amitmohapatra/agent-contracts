@@ -174,6 +174,22 @@ def test_with_fields_returns_a_new_context_and_tuples_group_ids() -> None:
     assert ctx.user_id is None and ctx.group_ids == ()
 
 
+def test_a_copy_is_validated_like_a_context_built_new() -> None:
+    """``with_fields`` builds the copy as the constructor would: what the type refuses, the
+    copy refuses, and what construction derives, the copy derives."""
+    ctx = _ctx(thread_id="thr")
+    with pytest.raises(ValidationError, match="tenant_id"):
+        ctx.with_fields(tenant_id=None)
+    with pytest.raises(ValidationError, match="bogus"):
+        ctx.with_fields(bogus=1)
+    with pytest.raises(ValidationError, match="timezone"):
+        ctx.with_fields(deadline=datetime(2030, 1, 1))
+    assert ctx.with_fields(turn_id="t9").session_id == "thr-session"
+    assert ctx.with_fields(turn_id="t9", session_id="ses").session_id == "ses"
+    same = ctx.with_fields()
+    assert same == ctx and same is not ctx
+
+
 def test_with_deadline_only_ever_tightens() -> None:
     soon = datetime.now(UTC) + timedelta(seconds=10)
     later = soon + timedelta(hours=1)
@@ -281,8 +297,8 @@ def test_scope_fields_drop_conversation_ids_the_service_would_refuse() -> None:
     orphan = _ctx(session_id="ses", turn_id="t1")
     scope = orphan.scope_fields()
     assert "session_id" not in scope and "turn_id" not in scope and "thread_id" not in scope
-    # a copy bypasses construction, so the boundary derives the session itself
-    copied = _ctx(thread_id="thr").with_fields(turn_id="t9")
+    # pydantic's own copy bypasses construction, so the boundary derives the session itself
+    copied = _ctx(thread_id="thr").model_copy(update={"turn_id": "t9"})
     assert copied.session_id is None
     assert copied.scope_fields()["session_id"] == "thr-session"
     assert copied.scope_fields()["turn_id"] == "t9"

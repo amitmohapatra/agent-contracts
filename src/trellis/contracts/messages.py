@@ -80,8 +80,9 @@ class AgentRequest(BaseModel):
         return cls(request_id=context.request_id, context=context, input=input, **fields)
 
     def with_fields(self, **changes: Any) -> Self:
-        """Interceptors return modified requests through this (the model is frozen)."""
-        return self.model_copy(update=changes)
+        """Interceptors return modified requests through this (the model is frozen). The
+        copy is validated like a request built new."""
+        return type(self).model_validate({**dict(self), **changes})
 
     @property
     def query(self) -> str | None:
@@ -173,14 +174,10 @@ class AgentResponse(BaseModel):
         return self.status.ok and self.error is None
 
     def with_fields(self, **changes: Any) -> Self:
-        return self.model_copy(update=changes)
+        """A copy with ``changes`` applied, validated like a response built new."""
+        return type(self).model_validate({**dict(self), **changes})
 
     def add_warning(self, code: str, message: str, **details: Any) -> Self:
-        return self.model_copy(
-            update={
-                "warnings": [
-                    *self.warnings,
-                    AgentWarning(code=code, message=message, details=details),
-                ]
-            }
+        return self.with_fields(
+            warnings=[*self.warnings, AgentWarning(code=code, message=message, details=details)]
         )

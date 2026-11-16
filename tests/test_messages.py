@@ -63,6 +63,17 @@ def test_a_request_is_frozen_and_with_fields_returns_a_new_one(
     changed = request.with_fields(objective="rewritten", constraints={"max_tokens": 10})
     assert changed.objective == "rewritten" and changed.constraints == {"max_tokens": 10}
     assert request.objective is None and request.constraints == {}
+    assert changed.context is request.context  # what did not change is not rebuilt
+    # the copy is validated: an interceptor cannot return a request the type refuses
+    with pytest.raises(ValidationError, match="context"):
+        request.with_fields(context=None)
+    with pytest.raises(ValidationError, match="constraints"):
+        request.with_fields(constraints="none")
+    moved = request.with_fields(context={**ctx.model_dump(), "tenant_id": "globex"})
+    assert isinstance(moved.context, AgentExecutionContext) and moved.context.tenant_id == "globex"
+    # open: an interceptor's own annotation travels, and survives a later copy
+    noted = request.with_fields(channel="slack").with_fields(objective="o")
+    assert noted.model_dump()["channel"] == "slack" and noted.objective == "o"
 
 
 def test_a_request_keeps_fields_it_does_not_know(ctx: AgentExecutionContext) -> None:
@@ -170,6 +181,14 @@ def test_with_fields_and_add_warning_leave_the_original_alone() -> None:
     ]
     assert [w.code for w in again.warnings] == ["MEMORY_DEGRADED", "TOOL_PARTIAL"]
     assert again.warnings[1].details == {}
+    # the copy is validated
+    with pytest.raises(ValidationError, match="status"):
+        response.with_fields(status="MEH")
+    with pytest.raises(ValidationError, match="carries no error"):
+        response.with_fields(error=AgentError(code="X"))
+    failed = response.with_fields(status="ERROR", error={"code": "X"}, trace="t1")
+    assert failed.status is AgentStatus.ERROR and failed.error == AgentError(code="X")
+    assert failed.add_warning("W", "m").model_dump()["trace"] == "t1"
 
 
 def test_a_response_round_trips_through_json_with_everything_it_carries() -> None:
