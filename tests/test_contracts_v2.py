@@ -6,7 +6,7 @@ import importlib.metadata as md
 import inspect
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, get_args
 
 import pytest
 from pydantic import BaseModel, ValidationError
@@ -36,6 +36,7 @@ from trellis.contracts import (
     Interrupt,
     InterruptDecision,
     InterruptReason,
+    InterruptRemember,
     InterruptResolution,
     Judge,
     JudgeMethod,
@@ -1310,6 +1311,44 @@ def test_an_approval_may_be_remembered_always(ctx: AgentExecutionContext) -> Non
         remember="always",
     )
     assert InterruptResolution.model_validate_json(always.model_dump_json()).remember == "always"
+
+
+@pytest.mark.parametrize("remember", get_args(InterruptRemember))
+def test_an_approval_reaches_beyond_its_call_only_for_a_tool_call(
+    ctx: AgentExecutionContext, remember: str
+) -> None:
+    """``problem_with`` is the part of "does this answer fit" that needs no JSON Schema: the
+    resolution answers this interrupt, and only a tool call's approval is remembered."""
+    call = ToolCall(tool="crm.update", args={"id": 7}, idempotency_key="call-2")
+    approval = _interrupt(ctx, reason=InterruptReason.APPROVAL, tool_call=call)
+    question = _interrupt(ctx)
+
+    def approve(interrupt: Interrupt) -> InterruptResolution:
+        return InterruptResolution(
+            interrupt_id=interrupt.interrupt_id,
+            run_id=interrupt.run_id,
+            decision=InterruptDecision.APPROVE,
+            remember=remember,  # type: ignore[arg-type]
+        )
+
+    assert approve(approval).problem_with(approval) is None
+    problem = approve(question).problem_with(question)
+    assert (problem is None) is (remember == "once")
+    assert problem is None or "only an approval of a tool call is remembered" in problem
+
+
+def test_a_resolution_of_another_interrupt_or_run_is_a_problem(
+    ctx: AgentExecutionContext,
+) -> None:
+    question = _interrupt(ctx)
+    answer = InterruptResolution(
+        interrupt_id=question.interrupt_id, run_id=question.run_id, decision="ANSWER", answer=1
+    )
+    assert answer.problem_with(question) is None
+    elsewhere = answer.model_copy(update={"interrupt_id": "int_other"})
+    assert elsewhere.problem_with(question) == f"it answers int_other, not {question.interrupt_id}"
+    other_run = answer.model_copy(update={"run_id": "run_other"})
+    assert other_run.problem_with(question) == f"it answers run run_other, not {question.run_id}"
 
 
 def test_a_queued_run_has_a_priority_and_may_share_a_concurrency_key() -> None:

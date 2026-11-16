@@ -525,6 +525,20 @@ class InterruptResolution(_Written):
     def resolves(self, interrupt: Interrupt) -> bool:
         return self.interrupt_id == interrupt.interrupt_id and self.run_id == interrupt.run_id
 
+    def problem_with(self, interrupt: Interrupt) -> str | None:
+        """Why this resolution cannot answer ``interrupt``, or ``None``. It cannot when it
+        answers another interrupt or run, or when it remembers an approval beyond its call
+        (``run``, ``always``) and no tool call is under approval. Whether the answer fits
+        ``expects`` or the options is not checked here: that needs JSON Schema, and is
+        ``trellis.runs.answers.answer_problem``."""
+        if self.interrupt_id != interrupt.interrupt_id:
+            return f"it answers {self.interrupt_id}, not {interrupt.interrupt_id}"
+        if self.run_id != interrupt.run_id:
+            return f"it answers run {self.run_id}, not {interrupt.run_id}"
+        if self.remember != "once" and interrupt.tool_call is None:
+            return "only an approval of a tool call is remembered beyond its call"
+        return None
+
     @property
     def feedback_id(self) -> str:
         """The one id the feedback for this decision carries, however often it is sent: an

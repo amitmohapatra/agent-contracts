@@ -99,7 +99,7 @@ and LangGraph's suspend signals by class name, and `RETRYABLE_CATEGORIES`.
 | `Option` | One choice an interrupt offers: the `value` an answer carries, and the `label` and `description` a person sees, and `recommended` on the one the asker recommends (its `description` saying why) |
 | `InterruptReason` | `QUESTION`, `APPROVAL`, `REVIEW`, `CHOICE`, `AUTH` |
 | `InterruptUI` | The control a surface renders, `Interrupt.ui`: `approve`, `form`, `table`, `diff`, `choice` |
-| `InterruptResolution` | How an interrupt was answered, with the reviewer's `comment` and how far an approval reaches (`remember`: `once`, the conversation (`run`), or `always` for the user until revoked). `resolves` checks it answers that interrupt, and `to_feedback` gives the feedback for a tool-call decision |
+| `InterruptResolution` | How an interrupt was answered, with the reviewer's `comment` and how far an approval reaches (`remember`: `once`, the conversation (`run`), or `always` for the user until revoked). `resolves` checks it answers that interrupt, `problem_with` says why it cannot (another interrupt or run, or an approval remembered beyond its call with no tool call under approval), and `to_feedback` gives the feedback for a tool-call decision |
 | `InterruptRemember` | `InterruptResolution.remember`: `once`, `run` or `always` |
 | `InterruptDecision` | `ANSWER`, `APPROVE`, `REJECT`, `EDIT`, `CANCEL` |
 | `ScheduleSpec` | A standing intent: which agent, what input, which cadence and timezone, on whose behalf; `timeout_seconds`, `agent_version`, `priority` and `concurrency_key` are copied into every fired run, and `metadata` into its metadata under the fire's own keys |

@@ -6,6 +6,13 @@ What changed in each version of `trellis-contracts`. Why each change was made is
 
 ## Unreleased
 
+* `InterruptResolution.problem_with(interrupt)`: why the resolution cannot answer the
+  interrupt, or `None`. It names an answer to another interrupt or run, and an approval
+  remembered beyond its call (`run` or `always`) where the interrupt has no tool call. The
+  second rule lived only in `trellis.runs.answers.answer_problem`, which checked `run` and
+  missed `always` (0.7.1). Whether an answer fits `expects` stays there: it needs JSON Schema.
+  Additive.
+
 * `RunRecord.moved(to, *, keep_checkpoint=False, **changes)`: the record after a status
   change, so a run store no longer spells out what a move ends. It raises `ValueError` for a
   move `RunStatus.can_become` refuses (a status never becomes itself, so `SUCCESS` to
