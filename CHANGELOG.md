@@ -6,6 +6,14 @@ What changed in each version of `trellis-contracts`. Why each change was made is
 
 ## Unreleased
 
+* `RunRecord.moved(to, *, keep_checkpoint=False, **changes)`: the record after a status
+  change, so a run store no longer spells out what a move ends. It raises `ValueError` for a
+  move `RunStatus.can_become` refuses (a status never becomes itself, so `SUCCESS` to
+  `SUCCESS` is refused) and for a change that names no field; it clears `awaiting` unless the
+  run pauses and `checkpoint` when the run ends, unless `keep_checkpoint`; it sets
+  `updated_at` to now unless given, and validates the result. Additive: agent-runs and the
+  harness's local store each still do this themselves until they call it.
+
 * `RunRecord.read(data)` and `Schedule.read(data)`: how a store or a client reads a record
   back. `RunRecord.model_validate` ignores an unknown field only at the top level; the
   `Interrupt`, `Option` and `InterruptResolution` inside a record refused one, so a reader on

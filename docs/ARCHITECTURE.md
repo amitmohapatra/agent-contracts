@@ -200,6 +200,11 @@ stateDiagram-v2
 * A final record carries no `checkpoint`.
 * `attempt >= 1`, and every timestamp is timezone-aware.
 
+`RunRecord.moved(to, **changes)` gives the record after a transition. It refuses a move the
+diagram does not have (a status never becomes itself), clears `awaiting` unless the run
+pauses, and clears `checkpoint` when the run ends unless the caller passes
+`keep_checkpoint=True`.
+
 `RunOutcome.from_status` maps a settled status to what `RUN_FINISHED` reports. `PAUSED`
 becomes `interrupt`, the endings become their lower-case names, and `QUEUED` and `RUNNING`
 raise `ValueError` because they have no outcome yet.

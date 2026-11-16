@@ -237,6 +237,67 @@ def test_a_record_read_back_drops_what_a_newer_writer_added(ctx: AgentExecutionC
     assert Schedule.read({**kept.model_dump(mode="json"), "added_later": 1}) == kept
 
 
+def _record_in(status: RunStatus, ctx: AgentExecutionContext) -> RunRecord:
+    return RunRecord(
+        run_id=ctx.agent_run_id,
+        tenant_id="acme",
+        agent_id="a",
+        status=status,
+        awaiting=_interrupt(ctx) if status is RunStatus.PAUSED else None,
+        checkpoint={"step": 2},
+        updated_at=datetime(2026, 11, 1, tzinfo=UTC),
+    )
+
+
+@pytest.mark.parametrize("source", list(RunStatus))
+@pytest.mark.parametrize("target", list(RunStatus))
+def test_a_record_moves_as_the_state_machine_allows_and_clears_what_the_move_ends(
+    ctx: AgentExecutionContext, source: RunStatus, target: RunStatus
+) -> None:
+    """``moved`` is the one place a store changes a record's status: it refuses what
+    ``can_become`` refuses (a status never becomes itself), and what a move ends is cleared
+    here, not by each store."""
+    record = _record_in(source, ctx)
+    asked = {"awaiting": _interrupt(ctx)} if target is RunStatus.PAUSED else {}
+    if (source, target) not in _MOVES:
+        with pytest.raises(ValueError, match=f"{source.value} run cannot become {target.value}"):
+            record.moved(target, **asked)
+        return
+    moved = record.moved(target, **asked)
+    assert moved.status is target and record.status is source  # a copy: the record is frozen
+    assert (moved.awaiting is not None) is (target is RunStatus.PAUSED)
+    assert moved.checkpoint == (None if target.final else {"step": 2})
+    assert record.moved(target, keep_checkpoint=True, **asked).checkpoint == {"step": 2}
+    assert moved.updated_at > record.updated_at and moved.created_at == record.created_at
+
+
+def test_a_move_carries_its_changes_and_is_validated(ctx: AgentExecutionContext) -> None:
+    running = _record_in(RunStatus.RUNNING, ctx)
+    error = AgentError(code="X", message="boom", category=ErrorCategory.MODEL)
+    at = datetime(2026, 11, 16, 9, 0, tzinfo=UTC)
+    failed = running.moved(RunStatus.ERROR, error=error, worked_seconds=4.5, updated_at=at)
+    assert (failed.error, failed.worked_seconds, failed.updated_at) == (error, 4.5, at)
+    done = running.moved(RunStatus.SUCCESS, output={"answer": 42})
+    assert done.output == {"answer": 42} and done.run_id == running.run_id
+    # the result is a record like any other: its own rules hold
+    with pytest.raises(ValidationError, match="carries no error"):
+        running.moved(RunStatus.SUCCESS, error=error)
+    with pytest.raises(ValidationError, match="PAUSED run waits"):
+        running.moved(RunStatus.PAUSED)
+    with pytest.raises(ValidationError, match="attempt"):
+        running.moved(RunStatus.QUEUED, attempt=0)
+    with pytest.raises(ValueError, match="no field of a run record: bogus"):
+        running.moved(RunStatus.QUEUED, bogus=1)
+    # what the move ends stays cleared, whatever the changes say
+    paused = running.moved(RunStatus.PAUSED, awaiting=_interrupt(ctx), checkpoint={"step": 3})
+    assert paused.checkpoint == {"step": 3}
+    resumed = paused.moved(RunStatus.RUNNING, awaiting=paused.awaiting, attempt=2)
+    assert resumed.awaiting is None and resumed.attempt == 2
+    assert paused.moved(RunStatus.CANCELLED, checkpoint={"step": 9}).checkpoint is None
+    kept = paused.moved(RunStatus.CANCELLED, keep_checkpoint=True, checkpoint={"step": 9})
+    assert kept.checkpoint == {"step": 9}
+
+
 # --------------------------------------------------------------------------- interrupts
 
 

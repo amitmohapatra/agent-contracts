@@ -91,7 +91,7 @@ and LangGraph's suspend signals by class name, and `RETRYABLE_CATEGORIES`.
 | --- | --- |
 | `RunStatus` | Where a run is: `QUEUED`, `RUNNING`, `PAUSED` or a final status spelled like `AgentStatus`. `can_become` is the state machine and `final` says whether it has ended |
 | `RunStart` | What starting a run records. It is agent-runs' create body, and `from_request` builds it from an `AgentRequest`. Optional: `deadline`, `timeout_seconds` (working time), `agent_version`, and how a queued run waits its turn: `priority` (higher first) and `concurrency_key` (runs sharing it run a few at a time) |
-| `RunRecord` | A run as a store keeps it: the start plus status, output, error, the interrupt it waits on, the last resolution, an opaque `checkpoint` and the attempt. `read(data)` reads one back from a store or a service, dropping fields this version does not know at every depth |
+| `RunRecord` | A run as a store keeps it: the start plus status, output, error, the interrupt it waits on, the last resolution, an opaque `checkpoint` and the attempt. `read(data)` reads one back from a store or a service, dropping fields this version does not know at every depth. `moved(to, **changes)` is the record after a status change: it refuses a move `can_become` refuses, and clears `awaiting` (unless the run pauses) and `checkpoint` (when it ends, unless `keep_checkpoint`) |
 | `RunEvent` | One event of a run's stream, in the AG-UI vocabulary, ordered by `sequence` within an `attempt` |
 | `RunEventType` | The event vocabulary: AG-UI's names plus `CONTEXT_LOADED` and `INTERRUPT` |
 | `RunOutcome` | How a run finished, as `RUN_FINISHED` reports it. `from_status` maps a settled status to it |

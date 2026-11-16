@@ -669,6 +669,25 @@ class RunRecord(RunStart):
             raise ValueError(f"a run starts QUEUED or RUNNING, not {status.value}")
         return cls.model_validate({**start.model_dump(), "status": status})
 
+    def moved(self, to: RunStatus, *, keep_checkpoint: bool = False, **changes: Any) -> Self:
+        """The record after the run moves to ``to``, with ``changes`` (the output, the error,
+        the interrupt a pause waits on, the attempt...) applied: the one place a store changes
+        a record's status. A move :meth:`RunStatus.can_become` refuses raises ``ValueError``,
+        and a status never becomes itself. What the move ends is cleared whatever ``changes``
+        say: ``awaiting`` unless the run pauses, and ``checkpoint`` when it ends, unless its
+        caller keeps it (``keep_checkpoint``) to rewind the run from. ``updated_at`` is now
+        unless given. The result is validated like any record."""
+        if not self.status.can_become(to):
+            raise ValueError(f"a {self.status.value} run cannot become {to.value}")
+        if unknown := sorted(changes.keys() - type(self).model_fields.keys()):
+            raise ValueError(f"no field of a run record: {', '.join(unknown)}")
+        cleared: dict[str, Any] = {} if to is RunStatus.PAUSED else {"awaiting": None}
+        if to.final and not keep_checkpoint:
+            cleared["checkpoint"] = None
+        return type(self).model_validate(
+            {**self.model_dump(), "updated_at": now(), **changes, **cleared, "status": to}
+        )
+
 
 # --------------------------------------------------------------------------- events
 
