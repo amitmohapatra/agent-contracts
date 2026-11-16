@@ -21,12 +21,13 @@ Trellis is five repos. This one is the vocabulary the other four agree on:
 | **agent-contracts** (this repo) | the shared records and ports, types only | — |
 | [agent-harness](https://github.com/amitmohapatra/agent-harness) | runs your agent (any framework) with memory, runs, governance, tools and evals | imports it; builds and reads every record |
 | [agent-runs](https://github.com/amitmohapatra/agent-runs) | durable runs, the inbox, schedules, workers and webhooks, plus its SDK `trellis.runs` | imports it; its HTTP API is built from these models |
-| [agent-memory-service](https://github.com/amitmohapatra/agent-memory-service) | memory, context and feedback for agents | speaks some shapes without importing them |
+| [agent-memory-service](https://github.com/amitmohapatra/agent-memory-service) | memory, context and feedback for agents | imports `Endpoint` and `ModelProfile` (from a copy it vendors); speaks the feedback and scope shapes without importing them |
 | [bifrost-sdk](https://github.com/amitmohapatra/bifrost-sdk) | the client for the Bifrost model and MCP gateway | independent; `classify()` reads its errors |
 
-Two sibling repos import it (agent-harness, and agent-runs with its SDK `trellis.runs`); the
-Memory Service speaks some of its shapes without importing it; `bifrost-sdk` is independent
-of it. The arrows from the harness are Way 1 of the
+Three sibling repos import it: agent-harness, agent-runs with its SDK `trellis.runs`, and
+the Memory Service, which imports `Endpoint` and `ModelProfile` from a vendored copy and
+speaks the feedback and scope shapes without importing them. `bifrost-sdk` is independent of
+it. The arrows from the harness are Way 1 of the
 [two ways to use Trellis](../README.md#where-this-fits-two-ways-to-use-trellis); in Way 2 your
 own code takes the harness's place and sends the same records with `trellis.runs` and
 `trellis.memory`.
@@ -44,6 +45,7 @@ flowchart LR
   H -->|"RunStart, Interrupt, InterruptResolution<br/>over HTTP"| R
   H -->|"Feedback from InterruptResolution.to_feedback<br/>via the trellis-memory SDK"| M
   H -->|model calls| B
+  M -->|"imports Endpoint, ModelProfile<br/>(vendored copy)"| CT
   M -. "accepts Feedback as is (POST /v1/feedback);<br/>scope_fields() = its Scope;<br/>OBSERVATION_KINDS = its ObservationKind" .- CT
 ```
 
@@ -51,7 +53,7 @@ flowchart LR
 | --- | --- |
 | `agent-harness` | The run event stream (`RunEvent`, `RunEventType`, `RunOutcome`); the pause (`Interrupt`, `InterruptReason`, `InterruptDecision`, `InterruptResolution` and its `to_feedback`); its runs client's records (`RunStart`, `RunRecord`, `RunStatus.can_become`, `Schedule`, `ScheduleSpec`); tool types (`ToolSpec`, `ToolCall`, `ToolOutcome`, `ToolStatus`); `AgentExecutionContext`; errors (`AgentError`, `ConfigurationError`, `ToolError`, `ModelError`); `FeedbackVerdict`; the id helpers. Its `trellis.harness.redaction.Redactor` implements `TelemetryRedactor`, asserted in its `tests/contract/test_ports.py`. |
 | `agent-runs` | Its stored and returned shapes: `RunStart` (its create body subclasses it), `RunRecord`, `RunStatus.can_become` (checked under a row lock), `Interrupt` (read back from `awaiting`), `InterruptResolution`, `InterruptDecision`, `Schedule`, `ScheduleSpec`, `AgentError`, `ErrorCategory`, `ArtifactRef`, `ToolCall`, and `now`, `new_id`, `stable_id`. |
-| `agent-memory-service` | Nothing imported. Its `POST /v1/feedback` takes the `Feedback` record unchanged; `AgentExecutionContext.scope_fields()` returns exactly its `Scope` keywords; `OBSERVATION_KINDS` mirrors its `ObservationKind`; `classify()` maps its SDK's exceptions (module `trellis.*`) by class name, and `AgentError.of` keeps their own `retryable`. |
+| `agent-memory-service` | `Endpoint` and `ModelProfile`, imported from a copy it vendors (`vendor/trellis-contracts`). Nothing else is imported: its `POST /v1/feedback` takes the `Feedback` record unchanged, with a `target_kind` of `run`, `memory`, `tool_call` or `procedure`; `AgentExecutionContext.scope_fields()` returns exactly its `Scope` keywords; `OBSERVATION_KINDS` mirrors its `ObservationKind`; `classify()` maps its SDK's exceptions (module `trellis.*`) by class name, and `AgentError.of` keeps their own `retryable`. |
 | `bifrost-sdk` | Nothing. The harness reaches models through it directly. `classify()` maps its exceptions (module `bifrost_sdk`) by class name, and `AgentError.of` keeps their own `retryable`. |
 
 ## Inside the package
@@ -648,9 +650,11 @@ exception class (that is `code`). Every value but `memory` is one a sibling repo
 The same record means the same thing to every block because it is defined once, here:
 
 * **One definition.** agent-runs' service and its SDK (`trellis.runs`) and the harness import
-  these models; none redefines them. The Memory Service does not import the package but speaks
-  its shapes: `POST /v1/feedback` takes a `Feedback` unchanged, `scope_fields()` returns its
-  `Scope` keywords, and `OBSERVATION_KINDS` is its `ObservationKind`.
+  these models; none redefines them. The Memory Service imports `Endpoint` and `ModelProfile`.
+  It defines the feedback shapes itself and speaks this package's: `POST /v1/feedback` takes a
+  `Feedback` whose `target_kind` is `run`, `memory`, `tool_call` or `procedure` (it has no
+  `answer` or `brief`), `scope_fields()` returns its `Scope` keywords, and
+  `OBSERVATION_KINDS` is its `ObservationKind`.
 * **The API is built from them.** agent-runs' OpenAPI document embeds these models
   (`RunCreate` subclasses `RunStart`; `RunRecord`, `Interrupt`, `InterruptResolution`,
   `Schedule`, `ScheduleSpec`, `AgentError` and `ArtifactRef` are used as they are). Its CI fails

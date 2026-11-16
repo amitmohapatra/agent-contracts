@@ -9,11 +9,11 @@ when it merely installs. The pins below are copied from each package's `pyprojec
 | Package | Version | Requires `trellis-contracts` | Notes |
 |---|---|---|---|
 | `trellis-contracts` | **0.7.1** | — | this package |
-| `trellis-harness` (agent-harness) | **0.7.0** | `>=0.6.5,<0.8` | builds and reads every record; installs the sibling checkout (`../agent-contracts`) in development |
-| `agent-runs` and `trellis-runs` (its SDK) | **0.4.1** | `>=0.6.2,<0.8` | the service's create body subclasses `RunStart`; its OpenAPI document embeds these models |
-| `trellis-memory` (Memory Service SDK) | **0.4.0** | not a dependency | sends a `Feedback` as it is; its exceptions are classified by class name |
-| `trellis-memory-service` (agent-memory-service) | **0.4.0** | `>=0.6.3,<0.8` | `POST /v1/feedback` takes the `Feedback` shape; `scope_fields()` returns its `Scope` keywords |
-| `bifrost-sdk` | **0.3.0** | not a dependency | independent; `classify()` maps its exceptions by class name |
+| `trellis-harness` (agent-harness) | **0.7.0** | `>=0.7.1,<0.8` | builds and reads every record; installs the sibling checkout (`../agent-contracts`) in development |
+| `agent-runs` and `trellis-runs` (its SDK) | **0.4.1** | `>=0.7.1,<0.8` | the service's create body subclasses `RunStart`; its OpenAPI document embeds these models |
+| `trellis-memory` (Memory Service SDK) | **0.6.6** | not a dependency | sends a `Feedback` as it is; its exceptions are classified by class name |
+| `trellis-memory-service` (agent-memory-service) | **0.4.0** | `>=0.6.3,<0.8` | imports `Endpoint` and `ModelProfile` from a copy it vendors (`vendor/trellis-contracts`, refreshed with its `make vendor`); `POST /v1/feedback` takes the `Feedback` shape, checked against its own enums; `scope_fields()` returns its `Scope` keywords |
+| `bifrost-sdk` | **0.4.0** | not a dependency | independent; `classify()` maps its exceptions by class name |
 | `pydantic` | `>=2.13,<3` | — | the only runtime dependency |
 | Python | `>=3.12` | — | `StrEnum`, PEP 695 generics |
 
@@ -36,8 +36,8 @@ The package is pre-1.0, and every consumer is a sibling repo that moves in the s
 A written record refuses unknown fields (`extra="forbid"`), so a record carrying a field added
 in a patch is refused by a reader on an older patch. A producer therefore pins at least the
 version whose fields it sends, and a consumer reading records back (`RunRecord`, `Schedule`,
-`AgentCard`) ignores fields it does not know. That is why agent-runs, which stores the
-schedule fields 0.6.1 added, pins `>=0.6.1`.
+`AgentCard`) ignores fields it does not know. That is why agent-runs, which keeps
+resolutions that may say `remember: always` (0.7.1), pins `>=0.7.1`.
 
 Read a stored or returned run with `RunRecord.read(data)` and a schedule with
 `Schedule.read(data)`. `RunRecord.model_validate` ignores an unknown field only at the top

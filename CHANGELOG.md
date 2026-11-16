@@ -126,6 +126,11 @@ all require `<0.8`, admit 0.8.
 
 Documentation:
 
+* [docs/versioning.md](docs/versioning.md): the table gives the pins and versions on each
+  sibling's `main` today (the harness and agent-runs require `>=0.7.1,<0.8`; `trellis-memory`
+  is 0.6.6, `bifrost-sdk` 0.4.0). [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) said the Memory
+  Service does not import this package; it imports `Endpoint` and `ModelProfile`, from a copy
+  it vendors.
 * The `RunRecord` docstring, the `checkpoint` field description and
   [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) said a final record carries no `checkpoint`;
   it does when its caller asked the store to keep it. [docs/troubleshooting.md](docs/troubleshooting.md)
