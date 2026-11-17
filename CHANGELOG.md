@@ -12,6 +12,10 @@ refuses, an error where its field says there is none). The version in `pyproject
 0.7.1 until agent-harness, agent-runs and agent-memory-service, which
 all require `<0.8`, admit 0.8.
 
+* `RunRecord.moved`, `with_fields` and `AgentError.of` read a model's values from the instance
+  (`_fields.fields_of`) instead of `dict(model)`, which walks pydantic's iterator: a move is
+  about twice as fast (13 to 7 µs), and a run moves its record several times. Same values,
+  extra ones included; still validated.
 * `AgentExecutionContext.deadline` is timezone-aware (`AwareDatetime`), as `RunStart.deadline`
   already was. A naive `datetime` was accepted, and `remaining_seconds` then raised
   `TypeError` in the middle of the run. It is now refused where it is given: a

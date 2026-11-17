@@ -13,6 +13,8 @@ from typing import Any, Final, Literal, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from trellis.contracts._fields import fields_of
+
 
 class ErrorCategory(StrEnum):
     VALIDATION = "VALIDATION"
@@ -147,7 +149,7 @@ class AgentError(BaseModel):
                 told["category"] = category
             if retryable is not None:
                 told["retryable"] = retryable
-            return cls.model_validate({**dict(error), **told})
+            return cls.model_validate({**fields_of(error), **told})
         cat = category or classify(exc)
         if retryable is None:
             retryable = _own_retryable(exc)

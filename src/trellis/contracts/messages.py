@@ -11,6 +11,7 @@ from typing import Any, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from trellis.contracts._fields import fields_of
 from trellis.contracts.artifacts import (
     AgentWarning,
     ArtifactRef,
@@ -82,7 +83,7 @@ class AgentRequest(BaseModel):
     def with_fields(self, **changes: Any) -> Self:
         """Interceptors return modified requests through this (the model is frozen). The
         copy is validated like a request built new."""
-        return type(self).model_validate({**dict(self), **changes})
+        return type(self).model_validate({**fields_of(self), **changes})
 
     @property
     def query(self) -> str | None:
@@ -175,7 +176,7 @@ class AgentResponse(BaseModel):
 
     def with_fields(self, **changes: Any) -> Self:
         """A copy with ``changes`` applied, validated like a response built new."""
-        return type(self).model_validate({**dict(self), **changes})
+        return type(self).model_validate({**fields_of(self), **changes})
 
     def add_warning(self, code: str, message: str, **details: Any) -> Self:
         return self.with_fields(

@@ -25,8 +25,11 @@ from trellis.contracts import (
     EvidenceRef,
     MemoryObservation,
     RecommendedAction,
+    RunRecord,
+    RunStart,
     SkillDescriptor,
 )
+from trellis.contracts._fields import fields_of
 
 
 @pytest.fixture
@@ -271,3 +274,15 @@ def test_descriptors_default_their_versions_and_are_frozen() -> None:
     assert skill.version == "1.0.0" and skill.input_schema is None and skill.tags == []
     with pytest.raises(ValidationError):
         skill.version = "2"  # type: ignore[misc]
+
+
+def test_fields_of_gives_a_models_values_as_dict_does_its_extra_ones_too(
+    ctx: AgentExecutionContext,
+) -> None:
+    """What a rebuild reads (``_fields.fields_of``): ``dict(model)``, read at once."""
+    request = AgentRequest.create(ctx, "hi").with_fields(channel="slack")
+    assert fields_of(request) == dict(request) and fields_of(request)["channel"] == "slack"
+    record = RunRecord.from_start(
+        RunStart(run_id="r", tenant_id="t", agent_id="a", user_id="u", input="hi")
+    )
+    assert fields_of(record) == dict(record)

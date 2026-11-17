@@ -28,6 +28,7 @@ from pydantic import (
     model_validator,
 )
 
+from trellis.contracts._fields import fields_of
 from trellis.contracts.artifacts import ArtifactRef
 from trellis.contracts.context import AgentExecutionContext
 from trellis.contracts.errors import AgentError, AgentPaused
@@ -702,7 +703,7 @@ class RunRecord(RunStart):
         if to.final and not keep_checkpoint:
             cleared["checkpoint"] = None
         return type(self).model_validate(
-            {**dict(self), "updated_at": now(), **changes, **cleared, "status": to}
+            {**fields_of(self), "updated_at": now(), **changes, **cleared, "status": to}
         )
 
 

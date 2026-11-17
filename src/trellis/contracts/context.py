@@ -15,6 +15,7 @@ from typing import Any, Self
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
+from trellis.contracts._fields import fields_of
 from trellis.contracts.ids import new_id, safe_id, stable_id
 
 #: Fields a child execution inherits verbatim from its parent. Anything outside this set is
@@ -203,7 +204,7 @@ class AgentExecutionContext(BaseModel):
         """A copy with ``changes`` applied, validated like a context built new: a change
         the type refuses is refused, and a turn in a thread gets its session. The context
         stays immutable; this returns a new one."""
-        return type(self).model_validate({**dict(self), **changes})
+        return type(self).model_validate({**fields_of(self), **changes})
 
     def with_deadline(self, deadline: AwareDatetime | None) -> Self:
         """Tighten the deadline. A child deadline never outlives the parent's (§38)."""
