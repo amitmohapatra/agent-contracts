@@ -286,3 +286,5 @@ def test_fields_of_gives_a_models_values_as_dict_does_its_extra_ones_too(
         RunStart(run_id="r", tenant_id="t", agent_id="a", user_id="u", input="hi")
     )
     assert fields_of(record) == dict(record)
+    object.__setattr__(record, "_kept", "not a field")  # an instance's own attribute
+    assert "_kept" not in fields_of(record) and fields_of(record) == dict(record)
