@@ -65,7 +65,7 @@ Every name below is in `trellis.contracts.__all__` and importable from `trellis.
 
 | Name | What it is |
 | --- | --- |
-| `AgentError` | A normalised, serialisable failure with `category`, `retryable` and `source`. `AgentError.of(exc)` builds one from any exception, keeping the exception's own `retryable` when it has one |
+| `AgentError` | A normalised, serialisable failure with `category`, `retryable` and `source`. `AgentError.of(exc)` builds one from any exception, keeping the exception's own `retryable` when it has one; `category=` and `retryable=` win when passed, and a `source=` outside `ErrorSource` leaves the source `None` with the name in `details.source_detail` |
 | `ErrorCategory` | The closed set of failure categories |
 | `ErrorSource` | The components that report failures, `AgentError.source`: `agent-runs`, `tools`, `mcp`, `a2a`, `memory` and the harness's adapters (`function`, `langgraph`, `openai_agents`, `claude_agent_sdk`, `acp`, `react`). A qualified `mcp.<tool>` is stored as `mcp` with the tool in `details.source_detail` |
 | `ERROR_SOURCES` | `ErrorSource` as a set |
@@ -81,9 +81,9 @@ Every name below is in `trellis.contracts.__all__` and importable from `trellis.
 | `ToolError` | A tool call failed (`TOOL`) |
 | `ToolNotFoundError` | A `ToolError` for a tool that does not exist (`VALIDATION`) |
 | `ResultValidationError` | An agent's result failed validation (`VALIDATION`) |
+| `is_pause_signal` | Whether an exception suspends the run (an `AgentPaused`, or one of LangGraph's suspend signals, matched by class name) and is no failure |
 
-`trellis.contracts.errors` also has `is_pause_signal(exc)`, which recognises `AgentPaused`
-and LangGraph's suspend signals by class name, and `RETRYABLE_CATEGORIES`.
+`trellis.contracts.errors` also has `RETRYABLE_CATEGORIES`.
 
 ### `runs`
 
@@ -91,7 +91,7 @@ and LangGraph's suspend signals by class name, and `RETRYABLE_CATEGORIES`.
 | --- | --- |
 | `RunStatus` | Where a run is: `QUEUED`, `RUNNING`, `PAUSED` or a final status spelled like `AgentStatus`. `can_become` is the state machine and `final` says whether it has ended |
 | `RunStart` | What starting a run records. It is agent-runs' create body, and `from_request` builds it from an `AgentRequest`. Optional: `deadline`, `timeout_seconds` (working time), `agent_version`, and how a queued run waits its turn: `priority` (higher first) and `concurrency_key` (runs sharing it run a few at a time) |
-| `RunRecord` | A run as a store keeps it: the start plus status, output, error, the interrupt it waits on, the last resolution, an opaque `checkpoint` and the attempt |
+| `RunRecord` | A run as a store keeps it: the start plus status, output, error, the interrupt it waits on, the last resolution, an opaque `checkpoint` and the attempt. `read(data)` reads one back from a store or a service, dropping fields this version does not know at every depth. `moved(to, **changes)` is the record after a status change: it refuses a move `can_become` refuses, and clears `awaiting` (unless the run pauses) and `checkpoint` (when it ends, unless `keep_checkpoint`) |
 | `RunEvent` | One event of a run's stream, in the AG-UI vocabulary, ordered by `sequence` within an `attempt` |
 | `RunEventType` | The event vocabulary: AG-UI's names plus `CONTEXT_LOADED` and `INTERRUPT` |
 | `RunOutcome` | How a run finished, as `RUN_FINISHED` reports it. `from_status` maps a settled status to it |
@@ -99,21 +99,21 @@ and LangGraph's suspend signals by class name, and `RETRYABLE_CATEGORIES`.
 | `Option` | One choice an interrupt offers: the `value` an answer carries, and the `label` and `description` a person sees, and `recommended` on the one the asker recommends (its `description` saying why) |
 | `InterruptReason` | `QUESTION`, `APPROVAL`, `REVIEW`, `CHOICE`, `AUTH` |
 | `InterruptUI` | The control a surface renders, `Interrupt.ui`: `approve`, `form`, `table`, `diff`, `choice` |
-| `InterruptResolution` | How an interrupt was answered, with the reviewer's `comment` and how far an approval reaches (`remember`: `once`, the conversation (`run`), or `always` for the user until revoked). `resolves` checks it answers that interrupt, and `to_feedback` gives the feedback for a tool-call decision |
+| `InterruptResolution` | How an interrupt was answered, with the reviewer's `comment` and how far an approval reaches (`remember`: `once`, the conversation (`run`), or `always` for the user until revoked). `resolves` checks it answers that interrupt, `problem_with` says why it cannot (another interrupt or run, or an approval remembered beyond its call with no tool call under approval), and `to_feedback` gives the feedback for a tool-call decision |
 | `InterruptRemember` | `InterruptResolution.remember`: `once`, `run` or `always` |
 | `InterruptDecision` | `ANSWER`, `APPROVE`, `REJECT`, `EDIT`, `CANCEL` |
 | `ScheduleSpec` | A standing intent: which agent, what input, which cadence and timezone, on whose behalf; `timeout_seconds`, `agent_version`, `priority` and `concurrency_key` are copied into every fired run, and `metadata` into its metadata under the fire's own keys |
-| `Schedule` | A schedule as agent-runs keeps it: the spec plus its id, author and the history of its fires |
+| `Schedule` | A schedule as agent-runs keeps it: the spec plus its id, author and the history of its fires. `read(data)` reads one back, as `RunRecord.read` does. `run_start(fire_time=...)` is the `RunStart` of the run a fire queues: the fields a spec shares with a start, the schedule's `metadata` under the fire's keys, and the idempotency key `<schedule_id>@<fire time in UTC>` |
 
 ### `feedback` and `evaluation`
 
 | Name | What it is |
 | --- | --- |
 | `Feedback` | One judgement about one target. `for_context` binds it to the identity of the request it was given in |
-| `FeedbackTargetKind` | `run`, `answer`, `memory`, `tool_call`, `brief`, `procedure` |
+| `FeedbackTargetKind` | `run`, `answer`, `memory`, `tool_call`, `brief`, `procedure`. The Memory Service keeps `run`, `memory`, `tool_call` and `procedure`, and refuses `answer` and `brief` |
 | `FeedbackVerdict` | `confirm`, `reject`, `correct`, `approve`, `edit`. `correct` and `edit` need a `correction` |
 | `FeedbackSource` | `human`, `judge`, `interrupt`, `system` (derived from a run's final status) |
-| `JudgeVerdict` | A judge's score in [0, 1] with its method, model and cost. `as_feedback` turns it into a `Feedback` |
+| `JudgeVerdict` | A judge's score in [0, 1] with its method, model and cost. `as_feedback` turns it into a `Feedback` on the run |
 | `JudgeMethod` | `grounded` (deterministic citation and claim checks) or `llm` |
 | `AgentEvalEvent` (from `events`) | What a judge scores a finished run from. It carries references, not payloads |
 

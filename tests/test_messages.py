@@ -25,8 +25,11 @@ from trellis.contracts import (
     EvidenceRef,
     MemoryObservation,
     RecommendedAction,
+    RunRecord,
+    RunStart,
     SkillDescriptor,
 )
+from trellis.contracts._fields import fields_of
 
 
 @pytest.fixture
@@ -63,6 +66,17 @@ def test_a_request_is_frozen_and_with_fields_returns_a_new_one(
     changed = request.with_fields(objective="rewritten", constraints={"max_tokens": 10})
     assert changed.objective == "rewritten" and changed.constraints == {"max_tokens": 10}
     assert request.objective is None and request.constraints == {}
+    assert changed.context is request.context  # what did not change is not rebuilt
+    # the copy is validated: an interceptor cannot return a request the type refuses
+    with pytest.raises(ValidationError, match="context"):
+        request.with_fields(context=None)
+    with pytest.raises(ValidationError, match="constraints"):
+        request.with_fields(constraints="none")
+    moved = request.with_fields(context={**ctx.model_dump(), "tenant_id": "globex"})
+    assert isinstance(moved.context, AgentExecutionContext) and moved.context.tenant_id == "globex"
+    # open: an interceptor's own annotation travels, and survives a later copy
+    noted = request.with_fields(channel="slack").with_fields(objective="o")
+    assert noted.model_dump()["channel"] == "slack" and noted.objective == "o"
 
 
 def test_a_request_keeps_fields_it_does_not_know(ctx: AgentExecutionContext) -> None:
@@ -124,9 +138,21 @@ def test_ok_and_failed_build_the_two_common_responses() -> None:
 def test_succeeded_needs_an_ok_status_and_no_error() -> None:
     error = AgentError(code="X")
     assert AgentResponse(status=AgentStatus.PARTIAL).succeeded
-    assert not AgentResponse(status=AgentStatus.SUCCESS, error=error).succeeded
     assert not AgentResponse(status=AgentStatus.REJECTED).succeeded
     assert not AgentResponse(status=AgentStatus.PAUSED).succeeded
+    assert not AgentResponse(status=AgentStatus.ERROR, error=error).succeeded
+
+
+@pytest.mark.parametrize("status", [s for s in AgentStatus if s.ok])
+def test_an_ok_response_carries_no_error(status: AgentStatus) -> None:
+    error = AgentError(code="X")
+    with pytest.raises(ValidationError, match=f"a {status.value} response carries no error"):
+        AgentResponse(status=status, error=error)
+    with pytest.raises(ValidationError, match="carries no error"):
+        AgentResponse.model_validate({"status": status.value, "error": {"code": "X"}})
+    for failed in (s for s in AgentStatus if not s.ok):
+        assert AgentResponse(status=failed, error=error).error is error
+        assert AgentResponse(status=failed).error is None
 
 
 class _Narrow(AgentResponse):
@@ -158,11 +184,19 @@ def test_with_fields_and_add_warning_leave_the_original_alone() -> None:
     ]
     assert [w.code for w in again.warnings] == ["MEMORY_DEGRADED", "TOOL_PARTIAL"]
     assert again.warnings[1].details == {}
+    # the copy is validated
+    with pytest.raises(ValidationError, match="status"):
+        response.with_fields(status="MEH")
+    with pytest.raises(ValidationError, match="carries no error"):
+        response.with_fields(error=AgentError(code="X"))
+    failed = response.with_fields(status="ERROR", error={"code": "X"}, trace="t1")
+    assert failed.status is AgentStatus.ERROR and failed.error == AgentError(code="X")
+    assert failed.add_warning("W", "m").model_dump()["trace"] == "t1"
 
 
 def test_a_response_round_trips_through_json_with_everything_it_carries() -> None:
     response = AgentResponse(
-        status=AgentStatus.PARTIAL,
+        status=AgentStatus.ERROR,
         data={"rows": 3},
         claims=[Claim(claim_id="c1", text="t", evidence_ids=["e1"], confidence=0.5)],
         evidence=[
@@ -240,3 +274,17 @@ def test_descriptors_default_their_versions_and_are_frozen() -> None:
     assert skill.version == "1.0.0" and skill.input_schema is None and skill.tags == []
     with pytest.raises(ValidationError):
         skill.version = "2"  # type: ignore[misc]
+
+
+def test_fields_of_gives_a_models_values_as_dict_does_its_extra_ones_too(
+    ctx: AgentExecutionContext,
+) -> None:
+    """What a rebuild reads (``_fields.fields_of``): ``dict(model)``, read at once."""
+    request = AgentRequest.create(ctx, "hi").with_fields(channel="slack")
+    assert fields_of(request) == dict(request) and fields_of(request)["channel"] == "slack"
+    record = RunRecord.from_start(
+        RunStart(run_id="r", tenant_id="t", agent_id="a", user_id="u", input="hi")
+    )
+    assert fields_of(record) == dict(record)
+    object.__setattr__(record, "_kept", "not a field")  # an instance's own attribute
+    assert "_kept" not in fields_of(record) and fields_of(record) == dict(record)

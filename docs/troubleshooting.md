@@ -35,8 +35,9 @@ together. Set both when pausing, and clear `awaiting` when resuming.
 the record's own. Build the interrupt with `Interrupt.from_paused(..., context=ctx)` so they
 come from the same context.
 
-**`a finished run carries no checkpoint`.** Clear `checkpoint` when a run reaches a final
-status. agent-runs does this on `finish`.
+**A finished run still has a `checkpoint`.** Its caller asked the store to keep it (agent-runs
+`finish` or `cancel` with `keep_checkpoint`), to rewind the ended run from. A store clears it
+at the end otherwise, and `RunRecord.moved` does the same unless `keep_checkpoint=True`.
 
 **`can_become` says no, and agent-runs answers 409.** The transition is not in the state
 machine; [the run's lifecycle](ARCHITECTURE.md#a-runs-lifecycle) lists every allowed one. A
@@ -80,6 +81,10 @@ create a `trellis/__init__.py` in your own code, because it would hide the other
 **Why does `RunRecord` accept a field `RunStart` refuses?** Records read back from a store or a
 peer ignore unknown fields, so a newer service does not break an older reader. Records you
 write refuse them, so your typo fails at your end.
+
+**A `RunRecord` from a newer service fails with `Extra inputs are not permitted` under
+`awaiting` or `last_resolution`.** `RunRecord.model_validate` ignores an unknown field only at
+the top level. Read it with `RunRecord.read(data)`, which drops unknown fields at every depth.
 
 **Where is the run store port?** There is none ([ADR 0004](adr/0004-no-run-store-port.md)).
 The runs client is `trellis.runs.RunsClient`.

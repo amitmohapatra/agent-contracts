@@ -13,12 +13,22 @@ UI, a webhook or another tenant's agent sees it.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any, Literal, Self
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    AwareDatetime,
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 
+from trellis.contracts._fields import fields_of
 from trellis.contracts.artifacts import ArtifactRef
 from trellis.contracts.context import AgentExecutionContext
 from trellis.contracts.errors import AgentError, AgentPaused
@@ -26,6 +36,25 @@ from trellis.contracts.feedback import Feedback, FeedbackSource, FeedbackTargetK
 from trellis.contracts.ids import new_id, now, stable_id
 from trellis.contracts.messages import AgentRequest, AgentStatus
 from trellis.contracts.tool import ToolCall
+
+#: the validation context of a record read back from a store (``RunRecord.read``)
+_READING = {"read": True}
+
+
+class _Written(BaseModel):
+    """A record that is written closed and read back open: an unknown field is refused,
+    except inside a record being read back (:meth:`RunRecord.read`), where it is dropped. A
+    reader on an older patch then still reads what a newer one wrote."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _a_reader_drops_what_it_does_not_know(cls, data: Any, info: ValidationInfo) -> Any:
+        if isinstance(data, dict) and info.context and info.context.get("read"):
+            return {name: value for name, value in data.items() if name in cls.model_fields}
+        return data
+
 
 # --------------------------------------------------------------------------- run records
 
@@ -222,13 +251,11 @@ InterruptUI = Literal["approve", "form", "table", "diff", "choice"]
 InterruptRemember = Literal["once", "run", "always"]
 
 
-class Option(BaseModel):
+class Option(_Written):
     """One choice an interrupt offers. ``value`` is what an answer that picks it carries;
     ``label`` and ``description`` are what a person sees; ``recommended`` marks the one the
     asker recommends, its ``description`` saying why. A plain string among
     ``Interrupt.options`` is an option whose value is that string, shown as it is."""
-
-    model_config = ConfigDict(frozen=True, extra="forbid")
 
     value: str = Field(
         description="What an answer that picks this option carries; not blank.",
@@ -256,7 +283,7 @@ class Option(BaseModel):
         return value
 
 
-class Interrupt(BaseModel):
+class Interrupt(_Written):
     """The framework-neutral record of a paused run: what is asked, what shape an answer
     takes, what the UI needs, who must answer by when, and the tool call under approval when
     there is one. Surfaces translate it (AG-UI ``RunFinished{outcome: interrupt}``, A2A
@@ -270,8 +297,6 @@ class Interrupt(BaseModel):
     inbox is filtered by; past ``deadline`` the run goes to ``escalate_to``, or times out when
     nobody is named. Data too large to travel with the question (a table, a diff) goes by
     reference in ``payload_ref``."""
-
-    model_config = ConfigDict(frozen=True, extra="forbid")
 
     interrupt_id: str = Field(
         default_factory=lambda: new_id("int_"),
@@ -445,13 +470,11 @@ _DECISION_VERDICT: dict[InterruptDecision, FeedbackVerdict] = {
 }
 
 
-class InterruptResolution(BaseModel):
+class InterruptResolution(_Written):
     """How an interrupt was answered. The paused run continues (``RunsClient.resume`` in
     ``trellis.runs`` moves it back to ``RUNNING`` on the same run id, the next attempt); the
     resolution names the interrupt and the run so agent-runs can refuse an answer to the wrong
     question."""
-
-    model_config = ConfigDict(frozen=True, extra="forbid")
 
     interrupt_id: str = Field(description="Id of the interrupt being answered.")
     run_id: str = Field(description="Id of the paused run; must be the interrupt's run_id.")
@@ -504,6 +527,20 @@ class InterruptResolution(BaseModel):
     def resolves(self, interrupt: Interrupt) -> bool:
         return self.interrupt_id == interrupt.interrupt_id and self.run_id == interrupt.run_id
 
+    def problem_with(self, interrupt: Interrupt) -> str | None:
+        """Why this resolution cannot answer ``interrupt``, or ``None``. It cannot when it
+        answers another interrupt or run, or when it remembers an approval beyond its call
+        (``run``, ``always``) and no tool call is under approval. Whether the answer fits
+        ``expects`` or the options is not checked here: that needs JSON Schema, and is
+        ``trellis.runs.answers.answer_problem``."""
+        if self.interrupt_id != interrupt.interrupt_id:
+            return f"it answers {self.interrupt_id}, not {interrupt.interrupt_id}"
+        if self.run_id != interrupt.run_id:
+            return f"it answers run {self.run_id}, not {interrupt.run_id}"
+        if self.remember != "once" and interrupt.tool_call is None:
+            return "only an approval of a tool call is remembered beyond its call"
+        return None
+
     @property
     def feedback_id(self) -> str:
         """The one id the feedback for this decision carries, however often it is sent: an
@@ -554,8 +591,9 @@ class RunRecord(RunStart):
     ``checkpoint`` is opaque executor state (the resume journal: answered asks, completed tool
     outputs, a framework's own resume state) written when the run pauses, returned on read and
     claim so another worker resumes without repeating side effects, and cleared when the run
-    finishes; the service bounds its size. Read back from a store, so unknown columns are
-    ignored rather than refused."""
+    finishes unless its caller asks the store to keep it (to rewind the ended run from); the
+    service bounds its size. Read back from a store, so unknown columns are ignored rather
+    than refused; :meth:`read` ignores them in ``awaiting`` and ``last_resolution`` too."""
 
     model_config = ConfigDict(frozen=True, extra="ignore")
 
@@ -569,7 +607,8 @@ class RunRecord(RunStart):
     )
     error: AgentError | None = Field(
         default=None,
-        description="Why the run failed; only on ERROR, TIMEOUT and REJECTED, None otherwise.",
+        description="Why the run failed. Only an ERROR, TIMEOUT or REJECTED run may carry "
+        "one, and a record of one without it is valid; refused on any other status.",
     )
     awaiting: Interrupt | None = Field(
         default=None,
@@ -583,7 +622,8 @@ class RunRecord(RunStart):
     checkpoint: dict[str, Any] | None = Field(
         default=None,
         description="Opaque executor state (resume journal) written with a pause and "
-        "returned on read and claim; never on a final run. Size bounded by the service.",
+        "returned on read and claim; on a final run only when its caller asked the store to "
+        "keep it. Size bounded by the service.",
     )
     attempt: int = Field(
         default=1,
@@ -633,11 +673,38 @@ class RunRecord(RunStart):
         return self.status.final
 
     @classmethod
+    def read(cls, data: Any) -> Self:
+        """The record ``data`` (what a store or a service returned) holds. A field this
+        version does not know is dropped at every depth, so a record written by a newer patch
+        still reads; everything else is validated as ever. A value this version does not
+        know (a new status, a new ``remember``) is still refused."""
+        return cls.model_validate(data, context=_READING)
+
+    @classmethod
     def from_start(cls, start: RunStart, *, status: RunStatus = RunStatus.RUNNING) -> Self:
         """The record of a run just started (``RUNNING``) or put on the queue (``QUEUED``)."""
         if status not in _ENTRIES:
             raise ValueError(f"a run starts QUEUED or RUNNING, not {status.value}")
         return cls.model_validate({**start.model_dump(), "status": status})
+
+    def moved(self, to: RunStatus, *, keep_checkpoint: bool = False, **changes: Any) -> Self:
+        """The record after the run moves to ``to``, with ``changes`` (the output, the error,
+        the interrupt a pause waits on, the attempt...) applied: the one place a store changes
+        a record's status. A move :meth:`RunStatus.can_become` refuses raises ``ValueError``,
+        and a status never becomes itself. What the move ends is cleared whatever ``changes``
+        say: ``awaiting`` unless the run pauses, and ``checkpoint`` when it ends, unless its
+        caller keeps it (``keep_checkpoint``) to rewind the run from. ``updated_at`` is now
+        unless given. The result is validated like any record."""
+        if not self.status.can_become(to):
+            raise ValueError(f"a {self.status.value} run cannot become {to.value}")
+        if unknown := sorted(changes.keys() - type(self).model_fields.keys()):
+            raise ValueError(f"no field of a run record: {', '.join(unknown)}")
+        cleared: dict[str, Any] = {} if to is RunStatus.PAUSED else {"awaiting": None}
+        if to.final and not keep_checkpoint:
+            cleared["checkpoint"] = None
+        return type(self).model_validate(
+            {**fields_of(self), "updated_at": now(), **changes, **cleared, "status": to}
+        )
 
 
 # --------------------------------------------------------------------------- events
@@ -701,6 +768,8 @@ _OUTCOMES: dict[RunStatus, RunOutcome] = {
     RunStatus.CANCELLED: RunOutcome.CANCELLED,
     RunStatus.TIMEOUT: RunOutcome.TIMEOUT,
 }
+#: outcomes that may carry an error: those of the endings a failed record carries one for
+_FAILED_OUTCOMES = frozenset(_OUTCOMES[status] for status in _FAILED)
 
 _TEXT_EVENTS = frozenset(
     {
@@ -772,7 +841,8 @@ class RunEvent(BaseModel):
     )
     error: AgentError | None = Field(
         default=None,
-        description="The failure a RUN_ERROR or a failed RUN_FINISHED reports; None otherwise.",
+        description="The failure a RUN_ERROR, or a RUN_FINISHED whose outcome is error, "
+        "timeout or rejected, reports; refused on any other event.",
     )
     data: dict[str, Any] = Field(
         default_factory=dict,
@@ -789,6 +859,10 @@ class RunEvent(BaseModel):
             raise ValueError(f"{self.type.value} carries no outcome")
         if self.outcome == RunOutcome.INTERRUPT and "interrupt" not in self.data:
             raise ValueError("a run finished with an interrupt carries the interrupt")
+        failure = self.type == RunEventType.RUN_ERROR or self.outcome in _FAILED_OUTCOMES
+        if self.error is not None and not failure:
+            what = f"a run finished {self.outcome.value}" if self.outcome else self.type.value
+            raise ValueError(f"{what} carries no error")
         if self.type in _TEXT_EVENTS and not self.message_id:
             raise ValueError(f"{self.type.value} names its message")
         if self.type in _TOOL_EVENTS and not self.tool_call_id:
@@ -893,7 +967,8 @@ class ScheduleSpec(BaseModel):
     nobody present acts as the person who set the schedule, never wider. ``timeout_seconds``,
     ``agent_version``, ``priority`` and ``concurrency_key`` are copied into the
     :class:`RunStart` of every fire, and ``metadata`` into its ``metadata`` under the fire's
-    own keys, so a scheduled run carries everything a started one can."""
+    own keys, so a scheduled run carries everything a started one can
+    (:meth:`Schedule.run_start` is that copy)."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -982,6 +1057,10 @@ class ScheduleSpec(BaseModel):
         return value
 
 
+#: what a schedule and a run's start both carry: a fire copies each as it is
+_FIRED = (ScheduleSpec.model_fields.keys() & RunStart.model_fields.keys()) - {"metadata"}
+
+
 class Schedule(ScheduleSpec):
     """A schedule as agent-runs keeps it. Read back from a store, so unknown columns are
     ignored rather than refused.
@@ -1023,9 +1102,9 @@ class Schedule(ScheduleSpec):
         description="Fires in a row that could not queue a run (not runs that failed); reset "
         "to 0 by a successful fire.",
     )
-    last_error: dict[str, Any] | None = Field(
+    last_error: AgentError | None = Field(
         default=None,
-        description="The last fire failure as a JSON AgentError; None after a successful fire.",
+        description="Why the last fire could not queue a run; None after a successful fire.",
     )
     retry_after: AwareDatetime | None = Field(
         default=None,
@@ -1042,6 +1121,41 @@ class Schedule(ScheduleSpec):
     )
 
     @classmethod
+    def read(cls, data: Any) -> Self:
+        """The schedule ``data`` (what a store or a service returned) holds, read as
+        :meth:`RunRecord.read` reads a run: a field this version does not know is dropped."""
+        return cls.model_validate(data, context=_READING)
+
+    @classmethod
     def from_spec(cls, spec: ScheduleSpec, **fields: Any) -> Self:
         """The record of a spec; ``fields`` (an id, the next fire time) win over the spec."""
         return cls.model_validate({**spec.model_dump(), **fields})
+
+    def run_start(
+        self, *, fire_time: datetime, thread_id: str | None = None, run_id: str | None = None
+    ) -> RunStart:
+        """The start of the run a fire for ``fire_time`` queues, the same wherever the
+        schedule fires. Every field a spec shares with a :class:`RunStart` is copied.
+        ``metadata`` is the schedule's under the fire's own keys (``schedule_id``,
+        ``schedule_name``, ``fire_time``, ``created_by``), which win. ``idempotency_key`` is
+        ``<schedule_id>@<fire_time in UTC, ISO 8601>``: one schedule, one instant, one run,
+        however the instant is spelled. ``user_id`` stays ``None``: nobody is present at a
+        fire, and the run acts for ``on_behalf_of``. ``thread_id`` is the conversation the
+        store puts the run in, and ``run_id`` is minted unless given. ``fire_time`` is
+        timezone-aware."""
+        if fire_time.utcoffset() is None:
+            raise ValueError("a fire time is timezone-aware")
+        fired_at = fire_time.astimezone(UTC).isoformat()
+        return RunStart(
+            **{name: getattr(self, name) for name in _FIRED},
+            **({} if run_id is None else {"run_id": run_id}),
+            thread_id=thread_id,
+            idempotency_key=f"{self.schedule_id}@{fired_at}",
+            metadata={
+                **self.metadata,
+                "schedule_id": self.schedule_id,
+                "schedule_name": self.name,
+                "fire_time": fired_at,
+                "created_by": self.created_by,
+            },
+        )

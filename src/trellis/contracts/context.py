@@ -13,8 +13,9 @@ from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from typing import Any, Self
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
+from trellis.contracts._fields import fields_of
 from trellis.contracts.ids import new_id, safe_id, stable_id
 
 #: Fields a child execution inherits verbatim from its parent. Anything outside this set is
@@ -111,7 +112,7 @@ class AgentExecutionContext(BaseModel):
     )
 
     # -- deadline (absolute, timezone-aware)
-    deadline: datetime | None = Field(
+    deadline: AwareDatetime | None = Field(
         default=None,
         description="Absolute time the execution must end by (ISO 8601, timezone-aware); a "
         "child's never outlives its parent's. None for no deadline.",
@@ -177,7 +178,7 @@ class AgentExecutionContext(BaseModel):
         agent_run_id: str | None = None,
         agent_group_id: str | None = None,
         task_id: str | None = None,
-        deadline: datetime | None = None,
+        deadline: AwareDatetime | None = None,
         metadata: Mapping[str, Any] | None = None,
     ) -> Self:
         """A child context for a nested agent run.
@@ -200,14 +201,14 @@ class AgentExecutionContext(BaseModel):
         )
 
     def with_fields(self, **changes: Any) -> Self:
-        """A copy with ``changes`` applied. The context stays immutable; this returns a new one."""
-        if "group_ids" in changes and changes["group_ids"] is not None:
-            changes["group_ids"] = tuple(changes["group_ids"])
-        return self.model_copy(update=changes)
+        """A copy with ``changes`` applied, validated like a context built new: a change
+        the type refuses is refused, and a turn in a thread gets its session. The context
+        stays immutable; this returns a new one."""
+        return type(self).model_validate({**fields_of(self), **changes})
 
-    def with_deadline(self, deadline: datetime | None) -> Self:
+    def with_deadline(self, deadline: AwareDatetime | None) -> Self:
         """Tighten the deadline. A child deadline never outlives the parent's (§38)."""
-        return self.model_copy(update={"deadline": _earliest(self.deadline, deadline)})
+        return self.with_fields(deadline=_earliest(self.deadline, deadline))
 
     # ------------------------------------------------------------------ derived values
     @property
@@ -294,9 +295,12 @@ class AgentExecutionContext(BaseModel):
         }
 
 
-def _earliest(a: datetime | None, b: datetime | None) -> datetime | None:
-    if a is None:
-        return b
-    if b is None:
-        return a
-    return min(a, b)
+def _earliest(kept: datetime | None, given: datetime | None) -> datetime | None:
+    """The earlier of the deadline a context has and one it is given."""
+    if given is not None and given.utcoffset() is None:
+        raise ValueError("a deadline is timezone-aware")
+    if kept is None:
+        return given
+    if given is None:
+        return kept
+    return min(kept, given)

@@ -5,8 +5,8 @@ from __future__ import annotations
 import importlib.metadata as md
 import inspect
 from collections.abc import Sequence
-from datetime import UTC, datetime, timedelta
-from typing import Any
+from datetime import UTC, datetime, timedelta, timezone
+from typing import Any, get_args
 
 import pytest
 from pydantic import BaseModel, ValidationError
@@ -36,6 +36,7 @@ from trellis.contracts import (
     Interrupt,
     InterruptDecision,
     InterruptReason,
+    InterruptRemember,
     InterruptResolution,
     Judge,
     JudgeMethod,
@@ -191,6 +192,111 @@ def test_a_records_place_is_the_stores_and_optional(ctx: AgentExecutionContext) 
     assert RunRecord.model_validate(older).placed_at is None
     with pytest.raises(ValidationError, match="timezone"):
         RunRecord.model_validate({**older, "placed_at": "2026-11-14T12:00:00"})
+
+
+def test_a_record_read_back_drops_what_a_newer_writer_added(ctx: AgentExecutionContext) -> None:
+    """A store or a client reads with ``RunRecord.read`` / ``Schedule.read``: a field a newer
+    patch added is dropped at every depth, where ``model_validate`` drops it only at the top.
+    A record being written still refuses it."""
+    option = Option(value="eu", label="Europe")
+    interrupt = _interrupt(ctx, reason=InterruptReason.CHOICE, options=[option, "us"])
+    answered = InterruptResolution(
+        interrupt_id="int_before", run_id=ctx.agent_run_id, decision=InterruptDecision.ANSWER
+    )
+    paused = RunRecord(
+        run_id=ctx.agent_run_id,
+        tenant_id="acme",
+        agent_id="a",
+        status=RunStatus.PAUSED,
+        awaiting=interrupt,
+        last_resolution=answered,
+    )
+    stored = paused.model_dump(mode="json")
+    newer = {
+        **stored,
+        "added_later": 1,
+        "awaiting": {
+            **stored["awaiting"],
+            "added_later": 1,
+            "options": [{**option.model_dump(mode="json"), "added_later": 1}, "us"],
+        },
+        "last_resolution": {**stored["last_resolution"], "added_later": 1},
+    }
+    with pytest.raises(ValidationError, match="added_later"):
+        RunRecord.model_validate(newer)
+    assert RunRecord.read(newer) == paused
+    assert RunRecord.read(stored) == RunRecord.model_validate(stored) == paused
+    with pytest.raises(ValidationError, match="added_later"):
+        Interrupt.model_validate(newer["awaiting"])
+    # reading forgives an unknown field, nothing else
+    with pytest.raises(ValidationError, match="PAUSED run waits"):
+        RunRecord.read({**newer, "status": "RUNNING"})
+    with pytest.raises(ValidationError, match="decision"):
+        RunRecord.read({**newer, "last_resolution": {**stored["last_resolution"], "decision": "X"}})
+    spec = ScheduleSpec(tenant_id="t", agent_id="a", name="n", cadence="daily", on_behalf_of="u1")
+    kept = Schedule.from_spec(spec)
+    assert Schedule.read({**kept.model_dump(mode="json"), "added_later": 1}) == kept
+
+
+def _record_in(status: RunStatus, ctx: AgentExecutionContext) -> RunRecord:
+    return RunRecord(
+        run_id=ctx.agent_run_id,
+        tenant_id="acme",
+        agent_id="a",
+        status=status,
+        awaiting=_interrupt(ctx) if status is RunStatus.PAUSED else None,
+        checkpoint={"step": 2},
+        updated_at=datetime(2026, 11, 1, tzinfo=UTC),
+    )
+
+
+@pytest.mark.parametrize("source", list(RunStatus))
+@pytest.mark.parametrize("target", list(RunStatus))
+def test_a_record_moves_as_the_state_machine_allows_and_clears_what_the_move_ends(
+    ctx: AgentExecutionContext, source: RunStatus, target: RunStatus
+) -> None:
+    """``moved`` is the one place a store changes a record's status: it refuses what
+    ``can_become`` refuses (a status never becomes itself), and what a move ends is cleared
+    here, not by each store."""
+    record = _record_in(source, ctx)
+    asked = {"awaiting": _interrupt(ctx)} if target is RunStatus.PAUSED else {}
+    if (source, target) not in _MOVES:
+        with pytest.raises(ValueError, match=f"{source.value} run cannot become {target.value}"):
+            record.moved(target, **asked)
+        return
+    moved = record.moved(target, **asked)
+    assert moved.status is target and record.status is source  # a copy: the record is frozen
+    assert (moved.awaiting is not None) is (target is RunStatus.PAUSED)
+    assert moved.checkpoint == (None if target.final else {"step": 2})
+    assert record.moved(target, keep_checkpoint=True, **asked).checkpoint == {"step": 2}
+    assert moved.updated_at > record.updated_at and moved.created_at == record.created_at
+
+
+def test_a_move_carries_its_changes_and_is_validated(ctx: AgentExecutionContext) -> None:
+    running = _record_in(RunStatus.RUNNING, ctx)
+    error = AgentError(code="X", message="boom", category=ErrorCategory.MODEL)
+    at = datetime(2026, 11, 16, 9, 0, tzinfo=UTC)
+    failed = running.moved(RunStatus.ERROR, error=error, worked_seconds=4.5, updated_at=at)
+    assert (failed.error, failed.worked_seconds, failed.updated_at) == (error, 4.5, at)
+    done = running.moved(RunStatus.SUCCESS, output={"answer": 42})
+    assert done.output == {"answer": 42} and done.run_id == running.run_id
+    # the result is a record like any other: its own rules hold
+    with pytest.raises(ValidationError, match="carries no error"):
+        running.moved(RunStatus.SUCCESS, error=error)
+    with pytest.raises(ValidationError, match="PAUSED run waits"):
+        running.moved(RunStatus.PAUSED)
+    with pytest.raises(ValidationError, match="attempt"):
+        running.moved(RunStatus.QUEUED, attempt=0)
+    with pytest.raises(ValueError, match="no field of a run record: bogus"):
+        running.moved(RunStatus.QUEUED, bogus=1)
+    # what the move ends stays cleared, whatever the changes say
+    paused = running.moved(RunStatus.PAUSED, awaiting=_interrupt(ctx), checkpoint={"step": 3})
+    assert paused.checkpoint == {"step": 3}
+    resumed = paused.moved(RunStatus.RUNNING, awaiting=paused.awaiting, attempt=2)
+    assert resumed.awaiting is None and resumed.attempt == 2
+    assert paused.moved(RunStatus.CANCELLED, checkpoint={"step": 9}).checkpoint is None
+    kept = paused.moved(RunStatus.CANCELLED, keep_checkpoint=True, checkpoint={"step": 9})
+    assert kept.checkpoint == {"step": 9}
 
 
 # --------------------------------------------------------------------------- interrupts
@@ -419,6 +525,9 @@ def test_run_events_carry_the_run_identity_and_the_agui_spelling(
         started.data = {}  # type: ignore[misc]
 
 
+_BOOM = AgentError(code="X", message="boom", category=ErrorCategory.MODEL)
+
+
 @pytest.mark.parametrize(
     ("build", "message"),
     [
@@ -449,6 +558,23 @@ def test_run_events_carry_the_run_identity_and_the_agui_spelling(
             lambda ctx: RunEvent.of(ctx, RunEventType.RUN_STARTED, 0, attempt=0),
             "greater than or equal to 1",
         ),
+        (
+            lambda ctx: RunEvent.of(ctx, RunEventType.STEP_FINISHED, 0, error=_BOOM),
+            "STEP_FINISHED carries no error",
+        ),
+        (
+            lambda ctx: RunEvent.of(
+                ctx, RunEventType.TOOL_CALL_RESULT, 0, tool_call_id="tc_1", error=_BOOM
+            ),
+            "TOOL_CALL_RESULT carries no error",
+        ),
+        *(
+            (
+                lambda ctx, outcome=outcome: RunEvent.finished(ctx, outcome, 0, error=_BOOM),
+                f"a run finished {outcome.value} carries no error",
+            )
+            for outcome in (RunOutcome.SUCCESS, RunOutcome.PARTIAL, RunOutcome.CANCELLED)
+        ),
     ],
 )
 def test_an_event_whose_shape_disagrees_with_its_type_is_refused(
@@ -472,6 +598,12 @@ def test_a_finished_event_names_its_outcome_and_an_interrupt_carries_the_questio
     error = AgentError(code="X", message="boom", category=ErrorCategory.MODEL)
     failed = RunEvent.finished(ctx, RunOutcome.ERROR, 2, error=error)
     assert failed.error is error and failed.model_dump(mode="json")["outcome"] == "error"
+    # an error is on RUN_ERROR and on the endings a failed record carries one for
+    assert RunEvent.of(ctx, RunEventType.RUN_ERROR, 3, error=error).error is error
+    for outcome in (RunOutcome.TIMEOUT, RunOutcome.REJECTED):
+        assert RunEvent.finished(ctx, outcome, 4, error=error).error is error
+    for outcome in (RunOutcome.ERROR, RunOutcome.TIMEOUT, RunOutcome.REJECTED):
+        assert RunEvent.finished(ctx, outcome, 5).error is None  # may, not must
 
 
 @pytest.mark.parametrize(
@@ -562,7 +694,10 @@ def test_a_run_outcome_the_platform_derives_is_system_feedback() -> None:
         Feedback.model_validate({**outcome.model_dump(mode="json"), "source": "nobody"})
 
 
-def test_a_judge_verdict_becomes_judge_feedback_on_the_answer() -> None:
+def test_a_judge_verdict_becomes_judge_feedback_on_the_run() -> None:
+    """The target is the run, the kind the Memory Service keeps a judge's word under (it has
+    no ``answer`` kind and refuses one); the result artifact, when the event names one, is in
+    ``metadata``."""
     event = AgentEvalEvent(
         agent_id="a", agent_run_id="run_1", tenant_id="acme", trace_id=TRACE, result_ref="art_9"
     )
@@ -575,17 +710,18 @@ def test_a_judge_verdict_becomes_judge_feedback_on_the_answer() -> None:
     )
     feedback = good.as_feedback(event)
     assert feedback.verdict is FeedbackVerdict.CONFIRM and feedback.source is FeedbackSource.JUDGE
-    assert feedback.target_kind is FeedbackTargetKind.ANSWER and feedback.target_id == "art_9"
+    assert feedback.target_kind is FeedbackTargetKind.RUN and feedback.target_id == "run_1"
     assert feedback.reviewer == "judge:grounded" and feedback.score == 0.8
-    assert feedback.metadata["method"] == "grounded" and feedback.metadata["target"] == "result"
+    assert feedback.metadata == {"method": "grounded", "label": None, "result_ref": "art_9"}
     assert feedback.trace_id == TRACE
     bad = JudgeVerdict(score=0.2, method=JudgeMethod.LLM, model="judge-model")
     assert (
         bad.as_feedback(event).verdict is FeedbackVerdict.REJECT
         and bad.reviewer == "judge:judge-model"
     )
-    on_run = bad.as_feedback(event.model_copy(update={"result_ref": None}))
-    assert on_run.target_id == "run_1" and on_run.metadata["target"] == "run"
+    bare = bad.as_feedback(event.model_copy(update={"result_ref": None}))
+    assert bare.target_kind is FeedbackTargetKind.RUN and bare.target_id == "run_1"
+    assert "result_ref" not in bare.metadata
     edge = JudgeVerdict(score=0.5, method=JudgeMethod.LLM)
     assert edge.as_feedback(event).verdict is FeedbackVerdict.CONFIRM
     assert edge.as_feedback(event, threshold=0.6).verdict is FeedbackVerdict.REJECT
@@ -750,16 +886,27 @@ def test_a_schedule_records_its_author_and_how_its_fires_went() -> None:
     with pytest.raises(ValidationError, match="created_by"):
         ScheduleSpec(**spec.model_dump(), created_by="admin")
     retry = datetime(2026, 10, 1, 8, 5, tzinfo=UTC)
+    error = AgentError(
+        code="OperationalError",
+        message="agent-runs unavailable",
+        category=ErrorCategory.DEPENDENCY,
+        retryable=True,
+        source="agent-runs",
+    )
     failing = Schedule.from_spec(
         spec,
         created_by="admin",
         last_run_id="run_1",
         consecutive_failures=2,
-        last_error={"status": 503, "message": "agent-runs unavailable"},
+        last_error=error.model_dump(mode="json"),  # as agent-runs stores it
         retry_after=retry,
     )
     assert failing.created_by == "admin" and failing.retry_after == retry
+    assert failing.last_error == error
     assert Schedule.model_validate_json(failing.model_dump_json()) == failing
+    assert failing.model_dump(mode="json")["last_error"] == error.model_dump(mode="json")
+    with pytest.raises(ValidationError, match="last_error"):
+        Schedule.from_spec(spec, last_error={"status": 503})
     with pytest.raises(ValidationError):
         Schedule.from_spec(spec, consecutive_failures=-1)
     with pytest.raises(ValidationError, match="timezone"):
@@ -1207,6 +1354,44 @@ def test_an_approval_may_be_remembered_always(ctx: AgentExecutionContext) -> Non
     assert InterruptResolution.model_validate_json(always.model_dump_json()).remember == "always"
 
 
+@pytest.mark.parametrize("remember", get_args(InterruptRemember))
+def test_an_approval_reaches_beyond_its_call_only_for_a_tool_call(
+    ctx: AgentExecutionContext, remember: str
+) -> None:
+    """``problem_with`` is the part of "does this answer fit" that needs no JSON Schema: the
+    resolution answers this interrupt, and only a tool call's approval is remembered."""
+    call = ToolCall(tool="crm.update", args={"id": 7}, idempotency_key="call-2")
+    approval = _interrupt(ctx, reason=InterruptReason.APPROVAL, tool_call=call)
+    question = _interrupt(ctx)
+
+    def approve(interrupt: Interrupt) -> InterruptResolution:
+        return InterruptResolution(
+            interrupt_id=interrupt.interrupt_id,
+            run_id=interrupt.run_id,
+            decision=InterruptDecision.APPROVE,
+            remember=remember,  # type: ignore[arg-type]
+        )
+
+    assert approve(approval).problem_with(approval) is None
+    problem = approve(question).problem_with(question)
+    assert (problem is None) is (remember == "once")
+    assert problem is None or "only an approval of a tool call is remembered" in problem
+
+
+def test_a_resolution_of_another_interrupt_or_run_is_a_problem(
+    ctx: AgentExecutionContext,
+) -> None:
+    question = _interrupt(ctx)
+    answer = InterruptResolution(
+        interrupt_id=question.interrupt_id, run_id=question.run_id, decision="ANSWER", answer=1
+    )
+    assert answer.problem_with(question) is None
+    elsewhere = answer.model_copy(update={"interrupt_id": "int_other"})
+    assert elsewhere.problem_with(question) == f"it answers int_other, not {question.interrupt_id}"
+    other_run = answer.model_copy(update={"run_id": "run_other"})
+    assert other_run.problem_with(question) == f"it answers run run_other, not {question.run_id}"
+
+
 def test_a_queued_run_has_a_priority_and_may_share_a_concurrency_key() -> None:
     plain = RunStart(tenant_id="acme", agent_id="refunds")
     assert plain.priority == 0 and plain.concurrency_key is None
@@ -1275,3 +1460,58 @@ def test_a_schedule_queue_order_fields_match_run_start() -> None:
         assert on_spec.default == on_start.default, name
         assert on_spec.description == on_start.description, name
         assert on_spec.metadata == on_start.metadata, name
+
+
+def test_a_schedule_fires_the_same_run_start_wherever_it_fires() -> None:
+    """``Schedule.run_start`` is the one mapping from a schedule to the run a fire queues:
+    every field a spec shares with a start is copied (found by name, so a field added to both
+    is copied without a change here), the fire's own keys win in ``metadata``, and one instant
+    is one idempotency key."""
+    spec = ScheduleSpec(
+        tenant_id="acme",
+        agent_id="digest",
+        name="Morning digest",
+        cadence="daily",
+        on_behalf_of="user:u1",
+        input={"since": "yesterday"},
+        workspace_id="fin",
+        timeout_seconds=600,
+        agent_version="v7",
+        priority=10,
+        concurrency_key="digest:acme",
+        metadata={"team": "finance", "schedule_id": "spoofed", "thread_id": "thr_9"},
+    )
+    schedule = Schedule.from_spec(spec, schedule_id="sch_1", created_by="key:ops")
+    at = datetime(2026, 11, 16, 8, 0, tzinfo=UTC)
+    start = schedule.run_start(fire_time=at)
+    shared = (ScheduleSpec.model_fields.keys() & RunStart.model_fields.keys()) - {"metadata"}
+    assert shared >= {"tenant_id", "agent_id", "on_behalf_of", "input", "priority"}
+    for name in shared:
+        assert (
+            getattr(start, name)
+            == getattr(schedule, name)
+            != RunStart.model_fields[name].get_default(call_default_factory=True)
+        ), name
+    assert start.metadata == {
+        "team": "finance",
+        "thread_id": "thr_9",
+        "schedule_id": "sch_1",
+        "schedule_name": "Morning digest",
+        "fire_time": "2026-11-16T08:00:00+00:00",
+        "created_by": "key:ops",
+    }
+    assert start.idempotency_key == "sch_1@2026-11-16T08:00:00+00:00"
+    # nobody is present at a fire: the run acts for on_behalf_of and serves no user of its own
+    assert start.user_id is None and start.parent_run_id is None and start.deadline is None
+    assert start.thread_id is None and start.run_id.startswith("run_")
+    assert start.run_id != schedule.run_start(fire_time=at).run_id
+    placed = schedule.run_start(fire_time=at, thread_id="thr_9", run_id="run_fixed")
+    assert (placed.thread_id, placed.run_id) == ("thr_9", "run_fixed")
+    # one instant spelled in another zone is the same fire
+    berlin = at.astimezone(timezone(timedelta(hours=1)))
+    again = schedule.run_start(fire_time=berlin, run_id=start.run_id)
+    assert again == start
+    later = schedule.run_start(fire_time=at + timedelta(days=1))
+    assert later.idempotency_key != start.idempotency_key
+    with pytest.raises(ValueError, match="timezone"):
+        schedule.run_start(fire_time=datetime(2026, 11, 16, 8, 0))

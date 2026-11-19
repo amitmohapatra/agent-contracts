@@ -12,6 +12,7 @@ from typing import Any, get_args
 import pytest
 from pydantic import ValidationError
 
+from trellis import contracts
 from trellis.contracts import (
     AgentCancelledError,
     AgentError,
@@ -27,6 +28,7 @@ from trellis.contracts import (
 )
 from trellis.contracts.errors import (
     ERROR_SOURCES,
+    MESSAGE_MAX_CHARS,
     RETRYABLE_CATEGORIES,
     ErrorCategory,
     ErrorSource,
@@ -96,6 +98,12 @@ def test_the_langgraph_signals_are_still_recognised() -> None:
     for cls in (GraphBubbleUp, GraphInterrupt, ParentCommand):
         assert is_pause_signal(cls("suspended")), cls.__name__
     assert not is_pause_signal(RuntimeError("a real failure"))
+
+
+def test_the_pause_check_is_part_of_the_package() -> None:
+    """Every caller that catches an exception asks it first: imported from the root."""
+    assert "is_pause_signal" in contracts.__all__
+    assert contracts.is_pause_signal is is_pause_signal
 
 
 def test_memory_sdk_errors_are_classified_by_module_and_name():
@@ -245,8 +253,17 @@ def test_a_harness_error_keeps_its_message_details_and_source() -> None:
     # a source passed when normalising wins over the exception's own
     assert AgentError.of(exc, source="langgraph").source == "langgraph"
     assert exc.to_error(source="a2a").source == "a2a"
-    # ``category`` is ignored: the harness error has already classified itself
-    assert AgentError.of(exc, category=ErrorCategory.MEMORY).category is ErrorCategory.TOOL
+    # the harness error has classified itself; what the caller passes still wins
+    assert AgentError.of(exc).category is ErrorCategory.TOOL and not AgentError.of(exc).retryable
+    told = AgentError.of(exc, category=ErrorCategory.TIMEOUT, retryable=True)
+    assert told.category is ErrorCategory.TIMEOUT and told.retryable
+    assert told == error.model_copy(
+        update={"category": ErrorCategory.TIMEOUT, "retryable": True, "trace_id": None}
+    )
+    # each on its own: a category passed alone does not decide whether to retry
+    assert not AgentError.of(exc, category=ErrorCategory.TIMEOUT).retryable
+    assert AgentError.of(exc, retryable=True).category is ErrorCategory.TOOL
+    assert not AgentError.of(AgentTimeoutError(), retryable=False).retryable
 
 
 def test_retryability_can_be_set_per_instance_without_touching_the_class() -> None:
@@ -415,10 +432,25 @@ def test_the_sources_are_the_components_that_report_failures() -> None:
 def test_a_source_outside_the_vocabulary_is_refused(source: str) -> None:
     with pytest.raises(ValidationError, match="agent-runs"):
         AgentError(code="X", source=source)  # type: ignore[arg-type]
-    with pytest.raises(ValidationError):
-        AgentError.of(RuntimeError(), source=source)
-    with pytest.raises(ValidationError):
-        ToolError("boom", source=source).to_error()
+
+
+@pytest.mark.parametrize("source", ["langchain", "MCP", "agent_runs", "billing.refund"])
+def test_normalising_a_failure_never_fails_on_who_reported_it(source: str) -> None:
+    """``AgentError.of`` and ``to_error`` run on the failure path, and the harness passes its
+    adapter's name as the source: an adapter this version does not list must not cost the run
+    its error. The source is left out and its name kept in ``details``."""
+    error = AgentError.of(RuntimeError("boom"), source=source, trace_id="tr")
+    assert (error.code, error.message, error.trace_id) == ("RuntimeError", "boom", "tr")
+    assert error.source is None and error.details == {"source_detail": source}
+    own = ToolError("refund failed", details={"order": 91}, source=source)
+    for built in (own.to_error(), AgentError.of(own), AgentError.of(ToolError("x"), source=source)):
+        assert built.source is None and built.details["source_detail"] == source
+    assert own.to_error().details == {"order": 91, "source_detail": source}
+    assert AgentError.model_validate_json(error.model_dump_json()) == error
+
+
+def test_a_blank_source_is_no_source() -> None:
+    assert AgentError.of(RuntimeError(), source="") == AgentError.of(RuntimeError())
 
 
 def test_a_qualified_source_keeps_its_qualifier_in_details() -> None:
@@ -458,3 +490,9 @@ def test_an_acp_agents_failure_is_recorded_as_the_acp_adapters() -> None:
     error = AgentError.of(RuntimeError("the agent's process ended"), source="acp")
     assert error.source == "acp" and error.model_dump(mode="json")["source"] == "acp"
     assert AgentError.model_validate_json(error.model_dump_json()).source == "acp"
+
+
+@pytest.mark.parametrize("raised", [ToolError, ValueError])
+def test_of_cuts_any_exceptions_message_to_the_documented_length(raised: type[Exception]) -> None:
+    error = AgentError.of(raised("x" * (MESSAGE_MAX_CHARS + 50)))
+    assert len(error.message) == MESSAGE_MAX_CHARS

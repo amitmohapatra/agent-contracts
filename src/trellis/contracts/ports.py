@@ -91,8 +91,8 @@ class MemoryPort(Protocol):
 
 @runtime_checkable
 class TelemetryProvider(Protocol):
-    """Span/event/metric emission (§23). ``start_span`` is a context manager yielding a
-    :class:`HarnessSpan`-shaped object."""
+    """Span/event/metric emission (§23). ``start_span`` is a context manager yielding the
+    provider's own span object."""
 
     def start_span(
         self, name: str, *, kind: str = "internal", attributes: Mapping[str, Any] | None = None

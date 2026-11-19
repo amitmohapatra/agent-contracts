@@ -13,6 +13,8 @@ from typing import Any, Final, Literal, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from trellis.contracts._fields import fields_of
+
 
 class ErrorCategory(StrEnum):
     VALIDATION = "VALIDATION"
@@ -130,16 +132,24 @@ class AgentError(BaseModel):
         trace_id: str | None = None,
         retryable: bool | None = None,
     ) -> AgentError:
-        """Normalize an exception. A :class:`HarnessError` carries its own classification.
+        """Normalize an exception. It never fails on the exception or on who reported it.
 
-        Anything else is sorted by :func:`classify` unless ``category`` is given. Whether it
-        is retryable is, in order: ``retryable`` when passed; the exception's own
-        ``retryable`` attribute when it has a bool one (the Memory Service SDK's and
-        bifrost-sdk's errors do: the service that answered knows better than a class name);
-        else whether the category is in :data:`RETRYABLE_CATEGORIES`. ``source`` must be an
-        :data:`ErrorSource`, optionally qualified (``mcp.refund``)."""
+        The category is ``category`` when passed; else a :class:`HarnessError`'s own; else
+        what :func:`classify` says. Whether it is retryable is, in order: ``retryable`` when
+        passed; the exception's own ``retryable`` attribute when it has a bool one (a
+        ``HarnessError`` does, and so do the Memory Service SDK's and bifrost-sdk's errors:
+        the service that answered knows better than a class name); else whether the category
+        is in :data:`RETRYABLE_CATEGORIES`. ``source`` is an :data:`ErrorSource`, optionally
+        qualified (``mcp.refund``); any other name (an adapter this version does not list)
+        leaves the source ``None`` and is kept in ``details``."""
         if isinstance(exc, HarnessError):
-            return exc.to_error(trace_id=trace_id, source=source or exc.source)
+            error = exc.to_error(trace_id=trace_id, source=source or exc.source)
+            told: dict[str, Any] = {"message": error.message[:MESSAGE_MAX_CHARS]}
+            if category is not None:
+                told["category"] = category
+            if retryable is not None:
+                told["retryable"] = retryable
+            return cls.model_validate({**fields_of(error), **told})
         cat = category or classify(exc)
         if retryable is None:
             retryable = _own_retryable(exc)
@@ -149,10 +159,19 @@ class AgentError(BaseModel):
                 "category": cat,
                 "message": str(exc)[:MESSAGE_MAX_CHARS],
                 "retryable": cat in RETRYABLE_CATEGORIES if retryable is None else retryable,
-                "source": source,
+                **_reported_by(source, {}),
                 "trace_id": trace_id,
             }
         )
+
+
+def _reported_by(source: str | None, details: dict[str, Any]) -> dict[str, Any]:
+    """The ``source`` and ``details`` of an error built from an exception. A source outside
+    :data:`ERROR_SOURCES` is left out and its name kept in ``details``: normalising a failure
+    must not fail on who reported it."""
+    if not source or source.partition(".")[0] in ERROR_SOURCES:
+        return {"source": source or None, "details": details}
+    return {"source": None, "details": {SOURCE_DETAIL: source, **details}}
 
 
 def _own_retryable(exc: BaseException) -> bool | None:
@@ -173,7 +192,7 @@ class AgentPaused(Exception):
 
     Deliberately not a :class:`HarnessError`: a pause is not a failure, and inheriting from
     the error base would classify it, count it in the error rate, and hand it to
-    ``on_agent_error``.
+    ``on_error``.
 
     ``question`` is what the person is being asked, and it is required — a pause with no
     question is a run that stops with nothing to show anyone. ``expects`` describes the shape
@@ -306,8 +325,8 @@ def _sdk_category(exc: BaseException) -> ErrorCategory:
 
 class HarnessError(Exception):
     """Base class for failures the harness itself raises. ``source`` is an
-    :data:`ErrorSource`, optionally qualified (``mcp.refund``); :meth:`to_error` refuses any
-    other."""
+    :data:`ErrorSource`, optionally qualified (``mcp.refund``); :meth:`to_error` leaves any
+    other out and keeps its name in ``details``."""
 
     code = "HARNESS_ERROR"
     category = ErrorCategory.UNKNOWN
@@ -337,8 +356,7 @@ class HarnessError(Exception):
                 "category": self.category,
                 "message": self.message,
                 "retryable": self.retryable,
-                "source": source or self.source,
-                "details": self.details,
+                **_reported_by(source or self.source, self.details),
                 "trace_id": trace_id,
             }
         )

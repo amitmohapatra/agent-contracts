@@ -9,8 +9,9 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Any, Self
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from trellis.contracts._fields import fields_of
 from trellis.contracts.artifacts import (
     AgentWarning,
     ArtifactRef,
@@ -80,8 +81,9 @@ class AgentRequest(BaseModel):
         return cls(request_id=context.request_id, context=context, input=input, **fields)
 
     def with_fields(self, **changes: Any) -> Self:
-        """Interceptors return modified requests through this (the model is frozen)."""
-        return self.model_copy(update=changes)
+        """Interceptors return modified requests through this (the model is frozen). The
+        copy is validated like a request built new."""
+        return type(self).model_validate({**fields_of(self), **changes})
 
     @property
     def query(self) -> str | None:
@@ -135,8 +137,15 @@ class AgentResponse(BaseModel):
     )
 
     error: AgentError | None = Field(
-        default=None, description="The failure, for a status that is not ok; None otherwise."
+        default=None,
+        description="The failure, for a status that is not ok; refused on SUCCESS and PARTIAL.",
     )
+
+    @model_validator(mode="after")
+    def _an_ok_response_carries_no_error(self) -> Self:
+        if self.error is not None and self.status.ok:
+            raise ValueError(f"a {self.status.value} response carries no error")
+        return self
 
     @classmethod
     def ok(cls, data: Any = None, **fields: Any) -> Self:
@@ -166,14 +175,10 @@ class AgentResponse(BaseModel):
         return self.status.ok and self.error is None
 
     def with_fields(self, **changes: Any) -> Self:
-        return self.model_copy(update=changes)
+        """A copy with ``changes`` applied, validated like a response built new."""
+        return type(self).model_validate({**fields_of(self), **changes})
 
     def add_warning(self, code: str, message: str, **details: Any) -> Self:
-        return self.model_copy(
-            update={
-                "warnings": [
-                    *self.warnings,
-                    AgentWarning(code=code, message=message, details=details),
-                ]
-            }
+        return self.with_fields(
+            warnings=[*self.warnings, AgentWarning(code=code, message=message, details=details)]
         )
