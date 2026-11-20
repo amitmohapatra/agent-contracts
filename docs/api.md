@@ -102,7 +102,7 @@ Every name below is in `trellis.contracts.__all__` and importable from `trellis.
 | `InterruptResolution` | How an interrupt was answered, with the reviewer's `comment` and how far an approval reaches (`remember`: `once`, the conversation (`run`), or `always` for the user until revoked). `resolves` checks it answers that interrupt, `problem_with` says why it cannot (another interrupt or run, or an approval remembered beyond its call with no tool call under approval), and `to_feedback` gives the feedback for a tool-call decision |
 | `InterruptRemember` | `InterruptResolution.remember`: `once`, `run` or `always` |
 | `InterruptDecision` | `ANSWER`, `APPROVE`, `REJECT`, `EDIT`, `CANCEL` |
-| `ScheduleSpec` | A standing intent: which agent, what input, which cadence and timezone, on whose behalf; `timeout_seconds`, `agent_version`, `priority` and `concurrency_key` are copied into every fired run, and `metadata` into its metadata under the fire's own keys |
+| `ScheduleSpec` | A standing intent: which agent, what input, which cadence and timezone, on whose behalf; `timeout_seconds`, `agent_version`, `priority` and `concurrency_key` are copied into every fired run, and `metadata` into its metadata under the fire's own keys; `end_at` (optional, in UTC) is the instant from which it fires no more |
 | `Schedule` | A schedule as agent-runs keeps it: the spec plus its id, author and the history of its fires. `read(data)` reads one back, as `RunRecord.read` does. `run_start(fire_time=...)` is the `RunStart` of the run a fire queues: the fields a spec shares with a start, the schedule's `metadata` under the fire's keys, and the idempotency key `<schedule_id>@<fire time in UTC>` |
 
 ### `feedback` and `evaluation`

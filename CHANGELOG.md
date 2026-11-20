@@ -12,6 +12,15 @@ refuses, an error where its field says there is none). The version in `pyproject
 0.7.1 until agent-harness, agent-runs and agent-memory-service, which
 all require `<0.8`, admit 0.8.
 
+* **A schedule may end.** `ScheduleSpec.end_at` (and so `Schedule.end_at`): an optional,
+  timezone-aware instant, kept in UTC whatever offset it was given in, from which the schedule
+  fires no more; a naive one is refused. `None`, the default, never ends, as before. agent-runs
+  stores it, never fires at or after it, and reports no `next_fire_at` once the next occurrence
+  would be at or past it. An optional field with a default: a patch
+  ([the version rules](docs/versioning.md#the-version-rules)). A reader on an older patch
+  that reads schedules back with `Schedule.read` drops it; one that validates a `ScheduleSpec`
+  carrying it refuses it, so a producer that sends `end_at` needs this version.
+
 * `RunRecord.moved`, `with_fields` and `AgentError.of` read a model's values from the instance
   (`_fields.fields_of`) instead of `dict(model)`, which walks pydantic's iterator: a move is
   about twice as fast (13 to 7 µs), and a run moves its record several times. Same values,

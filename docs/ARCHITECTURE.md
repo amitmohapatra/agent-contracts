@@ -464,6 +464,7 @@ classDiagram
     +workspace_id, enabled, metadata
     +timeout_seconds, agent_version
     +priority, concurrency_key
+    +end_at
   }
   class Schedule {
     <<frozen, ignores unknown>>

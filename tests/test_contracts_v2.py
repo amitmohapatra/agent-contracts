@@ -1515,3 +1515,30 @@ def test_a_schedule_fires_the_same_run_start_wherever_it_fires() -> None:
     assert later.idempotency_key != start.idempotency_key
     with pytest.raises(ValueError, match="timezone"):
         schedule.run_start(fire_time=datetime(2026, 11, 16, 8, 0))
+
+
+# --------------------------------------------------------------------------- end_at
+
+
+def test_a_schedule_may_end_and_its_end_is_an_instant_in_utc() -> None:
+    """``end_at``: no fire at or after it. Optional (``None``, the default, never ends),
+    timezone-aware, kept in UTC whatever offset it was given in; a naive one is refused."""
+    spec = ScheduleSpec(tenant_id="t", agent_id="a", name="n", cadence="daily", on_behalf_of="u")
+    assert spec.end_at is None and Schedule.from_spec(spec).end_at is None
+    berlin = timezone(timedelta(hours=2))
+    ending = ScheduleSpec(
+        **{**spec.model_dump(), "end_at": datetime(2026, 12, 31, 9, tzinfo=berlin)}
+    )
+    assert ending.end_at == datetime(2026, 12, 31, 7, tzinfo=UTC)
+    assert ending.end_at is not None and ending.end_at.utcoffset() == timedelta(0)
+    schedule = Schedule.from_spec(ending)
+    assert schedule.end_at == ending.end_at
+    assert Schedule.read(schedule.model_dump(mode="json")) == schedule
+    assert schedule.model_dump(mode="json")["end_at"] == "2026-12-31T07:00:00Z"
+    with pytest.raises(ValidationError, match="end_at"):
+        ScheduleSpec(**{**spec.model_dump(), "end_at": datetime(2026, 12, 31, 9)})
+    # an end is the schedule's, not its runs': a fire's start does not carry it
+    assert "end_at" not in RunStart.model_fields
+    assert (
+        "end_at" not in schedule.run_start(fire_time=datetime(2026, 12, 1, tzinfo=UTC)).model_dump()
+    )

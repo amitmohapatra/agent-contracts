@@ -968,7 +968,8 @@ class ScheduleSpec(BaseModel):
     ``agent_version``, ``priority`` and ``concurrency_key`` are copied into the
     :class:`RunStart` of every fire, and ``metadata`` into its ``metadata`` under the fire's
     own keys, so a scheduled run carries everything a started one can
-    (:meth:`Schedule.run_start` is that copy)."""
+    (:meth:`Schedule.run_start` is that copy). ``end_at``, when set, is the instant from which
+    it fires no more; it belongs to the schedule, not to its runs."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -1033,6 +1034,13 @@ class ScheduleSpec(BaseModel):
         "no such limit.",
         examples=["thread:chat-42"],
     )
+    end_at: AwareDatetime | None = Field(
+        default=None,
+        description="When the schedule ends (ISO 8601, timezone-aware, kept in UTC): it never "
+        "fires at or after this instant, and once its next occurrence would be, next_fire_at "
+        "is None. None: it never ends.",
+        examples=["2026-12-31T00:00:00Z"],
+    )
     metadata: dict[str, Any] = Field(
         default_factory=dict,
         description="Free-form JSON object kept with the schedule; the contract never reads it. "
@@ -1046,6 +1054,11 @@ class ScheduleSpec(BaseModel):
         if not value.strip():
             raise ValueError("must not be blank")
         return value.strip()
+
+    @field_validator("end_at")
+    @classmethod
+    def _in_utc(cls, value: datetime | None) -> datetime | None:
+        return None if value is None else value.astimezone(UTC)
 
     @field_validator("timezone")
     @classmethod
