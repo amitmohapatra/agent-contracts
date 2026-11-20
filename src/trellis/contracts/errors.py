@@ -288,6 +288,8 @@ _SDK_CATEGORIES: Final[dict[str, ErrorCategory]] = {
     "BifrostOnlyError": ErrorCategory.VALIDATION,
     "NotFoundError": ErrorCategory.DEPENDENCY,
     "RateLimitedError": ErrorCategory.RATE_LIMIT,
+    # agent-runs: the tenant's schedule runs for the day are spent (a kind of its Conflict)
+    "FiresPerDayError": ErrorCategory.RATE_LIMIT,
     "RateLimited": ErrorCategory.RATE_LIMIT,
     "DependencyUnavailableError": ErrorCategory.DEPENDENCY,
     "Unreachable": ErrorCategory.DEPENDENCY,

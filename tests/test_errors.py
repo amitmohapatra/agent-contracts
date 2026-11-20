@@ -496,3 +496,15 @@ def test_an_acp_agents_failure_is_recorded_as_the_acp_adapters() -> None:
 def test_of_cuts_any_exceptions_message_to_the_documented_length(raised: type[Exception]) -> None:
     error = AgentError.of(raised("x" * (MESSAGE_MAX_CHARS + 50)))
     assert len(error.message) == MESSAGE_MAX_CHARS
+
+
+def test_a_tenants_schedule_runs_spent_for_the_day_is_a_rate_limit() -> None:
+    """agent-runs' ``FiresPerDayError`` (a kind of its ``ConflictError``): the tenant's runs for
+    the day are spent, a quota that clears tomorrow, not a request to fix."""
+    runs = "trellis.runs.errors"
+    conflict = _sdk_error(runs, "ConflictError")
+    spent = _sdk_error(runs, "FiresPerDayError", base=conflict)
+    assert classify(spent()) is ErrorCategory.RATE_LIMIT
+    assert classify(conflict()) is ErrorCategory.VALIDATION  # its parent stays as it was
+    limit = _sdk_error(runs, "ScheduleLimitError", base=conflict)
+    assert classify(limit()) is ErrorCategory.VALIDATION  # a count only a delete frees

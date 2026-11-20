@@ -12,6 +12,10 @@ refuses, an error where its field says there is none). The version in `pyproject
 0.7.1 until agent-harness, agent-runs and agent-memory-service, which
 all require `<0.8`, admit 0.8.
 
+* **A tenant's schedule runs spent for the day are a rate limit.** agent-runs'
+  `FiresPerDayError` (its `FIRES_PER_DAY`, a kind of its `ConflictError`) classifies as
+  `ErrorCategory.RATE_LIMIT`: a quota that clears the next day, not a request to fix. Its
+  parent and `ScheduleLimitError` stay `VALIDATION`.
 * **A schedule may end.** `ScheduleSpec.end_at` (and so `Schedule.end_at`): an optional,
   timezone-aware instant, kept in UTC whatever offset it was given in, from which the schedule
   fires no more; a naive one is refused. `None`, the default, never ends, as before. agent-runs
